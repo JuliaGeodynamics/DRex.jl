@@ -1,0 +1,40 @@
+{
+    "title": "DRex.jl: A Julia package for simulating crystallographic preferred orientation (CPO) evolution",
+    "description": "Julia translation of the PyDRex package for simulating crystallographic preferred orientation (CPO) evolution in polycrystals, based on the D-Rex model (Kaminski & Ribe, 2001; 2004). Implements allocation-free grain-level computations using StaticArrays.jl.",
+    "creators": [
+        {
+            "name": "Kaus, Boris J.P.",
+            "affiliation": "Johannes Gutenberg University Mainz",
+            "orcid": "0000-0002-0247-8660"
+        }
+    ],
+    "license": "GPL-3.0-or-later",
+    "upload_type": "software",
+    "access_right": "open",
+    "keywords": [
+        "crystallographic preferred orientation",
+        "CPO",
+        "D-Rex",
+        "olivine",
+        "seismic anisotropy",
+        "geodynamics",
+        "Julia"
+    ],
+    "related_identifiers": [
+        {
+            "identifier": "https://github.com/JuliaGeodynamics/DRex.jl",
+            "relation": "isSupplementTo",
+            "scheme": "url"
+        },
+        {
+            "identifier": "https://github.com/seismic-anisotropy/PyDRex",
+            "relation": "isDerivedFrom",
+            "scheme": "url"
+        },
+        {
+            "identifier": "10.1093/gji/ggaf026",
+            "relation": "references",
+            "scheme": "doi"
+        }
+    ]
+}
