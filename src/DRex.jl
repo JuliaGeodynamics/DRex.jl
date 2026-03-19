@@ -44,6 +44,7 @@ include("diagnostics.jl")
 include("io.jl")
 include("velocity.jl")
 include("pathlines.jl")
+include("lamem_coupling.jl")
 
 export MineralPhase, olivine, enstatite
 export MineralFabric, olivine_A, olivine_B, olivine_C, olivine_D, olivine_E, enstatite_AB
@@ -81,5 +82,12 @@ export strain_increment, apply_gbs!, extract_vars, remove_nans, default_ncpus, a
 
 # IO
 export SCSVError, read_scsv, save_scsv, write_scsv_header, scsv_data
+
+# LaMEM coupling (implemented in ext/DRexLaMEMExt.jl when LaMEM is loaded)
+export LaMEMSnapshot, CPOTracer
+export load_snapshots, create_tracers, evolve_cpo!
+export backtrack_positions, run_cpo_at_locations, compute_cpo_from_lamem
+export trilinear_interpolate, interpolate_vel_grad, interpolate_velocity
+export make_velocity_gradient_func, make_velocity_func
 
 end # module

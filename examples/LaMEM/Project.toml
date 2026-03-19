@@ -1,0 +1,14 @@
+[deps]
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+DRex = "d4e3b9a0-5c1a-4e2b-8f3d-6a7b8c9d0e1f"
+GLMakie = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
+GeophysicalModelGenerator = "3700c31b-fa53-48a6-808a-ef22d5a84742"
+LaMEM = "2e889f3d-35ce-4a77-8ea2-858aecb630f7"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+WriteVTK = "64499a7a-5c06-52f2-abe2-ccb03c286192"
+
+[compat]
+GLMakie = "0.10, 0.11, 0.13"
+GeophysicalModelGenerator = "0.7"
+LaMEM = "0.4"
+julia = "1.10"
