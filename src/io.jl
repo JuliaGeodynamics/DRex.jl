@@ -21,7 +21,7 @@ const _SCSV_DEFAULT_FILL = ""
 # Path helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-const _DATA_DIR = normpath(joinpath(@__DIR__, "..", "..", "src", "pydrex", "data"))
+const _DATA_DIR = normpath(joinpath(@__DIR__, "..", "data"))
 
 """
     scsv_data(directory)

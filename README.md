@@ -18,15 +18,24 @@ DRex.jl implements the D-Rex model (Kaminski & Ribe, 2001; 2004) for computing t
 
 ## Installation
 
+DRex.jl is hosted on GitHub at [JuliaGeodynamics/DRex.jl](https://github.com/JuliaGeodynamics/DRex.jl). Since it is not yet registered in the General registry, install it directly from the repository:
+
 ```julia
 using Pkg
-Pkg.develop(path="path/to/DRex.jl")
+Pkg.add(url="https://github.com/JuliaGeodynamics/DRex.jl")
 ```
 
-Or add as a dependency:
+Or from the package REPL (press `]`):
 
 ```julia
-] add path/to/DRex.jl
+] add https://github.com/JuliaGeodynamics/DRex.jl
+```
+
+For local development:
+
+```julia
+using Pkg
+Pkg.develop(url="https://github.com/JuliaGeodynamics/DRex.jl")
 ```
 
 ### Dependencies
@@ -119,8 +128,7 @@ All these functions are marked `@inline` and operate exclusively on static-sized
 
 ```julia
 using Pkg
-Pkg.activate("path/to/DRex.jl")
-Pkg.test()
+Pkg.test("DRex")
 ```
 
 The test suite includes:
