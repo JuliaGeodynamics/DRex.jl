@@ -1,6 +1,7 @@
 # DRex.jl
 
 [![CI](https://github.com/JuliaGeodynamics/DRex.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/JuliaGeodynamics/DRex.jl/actions/workflows/CI.yml)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19110048.svg)](https://doi.org/10.5281/zenodo.19110048)
 
 A Julia translation of the [PyDRex](https://github.com/seismic-anisotropy/PyDRex) package for simulating crystallographic preferred orientation (CPO) evolution in polycrystals (as described in [Bilton et al. (2025)](https://academic.oup.com/gji/article/241/1/35/7965963)), which is again based on the DRex package developed by Kaminsky & Ribe (2001,2004).
 Since Julia is a compiled language this runs much faster than the python version (>3 orders of magnitude, if numbers mentioned in the python test suite are representative).
@@ -149,6 +150,7 @@ We developed DRex.jl by translating the python package PyDRex, developed by Bilt
 
 As there are no new features compared to the python version, we do not plan a separate publication at this stage. You can cite the package from the Zenodo repository:
 
+- Kaus, B.J.P., 2025. DRex.jl: A Julia package for simulating crystallographic preferred orientation (CPO) evolution (v0.1.0). Zenodo. https://doi.org/10.5281/zenodo.19110048
 
 ## References
 
