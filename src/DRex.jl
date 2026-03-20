@@ -33,6 +33,7 @@ using LinearAlgebra
 using StaticArrays
 using Random
 using Rotations
+using KernelAbstractions
 
 include("core.jl")
 include("tensors.jl")

@@ -5,6 +5,7 @@ version = "0.1.0"
 authors = ["Boris Kaus <kaus@uni-mainz.de>"]
 
 [deps]
+KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 OrdinaryDiffEq = "1dea7af3-3e70-54e6-95c3-0bf5283fa5ed"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
@@ -23,6 +24,7 @@ DRexLaMEMExt = ["LaMEM", "GeophysicalModelGenerator", "WriteVTK"]
 GeophysicalModelGenerator = "0.7"
 LaMEM = "0.4"
 WriteVTK = "1"
+KernelAbstractions = "0.9"
 OrdinaryDiffEq = "6"
 Rotations = "1"
 StaticArrays = "1"

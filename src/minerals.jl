@@ -177,6 +177,7 @@ function update_orientations!(
     get_velocity_gradient,
     pathline::Tuple;
     get_regime=nothing,
+    backend::KernelAbstractions.Backend = CPU(),
 ) where T<:AbstractFloat
     time_start, time_end, get_position = pathline
     n_grains = mineral.n_grains
@@ -198,7 +199,7 @@ function update_orientations!(
         fractions_prev,
     ))
 
-    function rhs!(dy, y, p, t)
+    function rhs!(dy, y, _, t)
         position = get_position(t)
         vel_grad = T.(get_velocity_gradient(t, position))
 
@@ -224,7 +225,8 @@ function update_orientations!(
                      params[:deformation_exponent],
                      params[:nucleation_efficiency],
                      params[:gbm_mobility],
-                     volume_fraction)
+                     volume_fraction;
+                     backend = backend)
 
         dy[1:9] .= vec(F_diff)
         dy[10:n_grains*9+9] .= vec(ori_diff) .* sr_max
@@ -275,6 +277,7 @@ function update_all!(
     get_velocity_gradient,
     pathline::Tuple;
     get_regime=nothing,
+    backend::KernelAbstractions.Backend = CPU(),
 )
     new_F = deformation_gradient
     for mineral in minerals
@@ -282,6 +285,7 @@ function update_all!(
             mineral, params, deformation_gradient,
             get_velocity_gradient, pathline;
             get_regime=get_regime,
+            backend=backend,
         )
     end
     return new_F
