@@ -73,7 +73,8 @@ const SEEDS_1000 = [
 ]
 
 """
-    run_simple_shear_3d(params, timestamps, get_L_initial, get_L_final, switch_time; seed=nothing)
+    run_simple_shear_3d(params, timestamps, get_L_initial, get_L_final, switch_time;
+                        seed=nothing, float_type=Float64)
 
 Run simulation with stationary particle in a velocity gradient that switches direction.
 
@@ -83,12 +84,13 @@ if enstatite is not in the phase assemblage.
 """
 function run_simple_shear_3d(
     params, timestamps, get_L_initial, get_L_final, switch_time;
-    seed=nothing,
-)
+    seed=nothing, float_type::Type{T}=Float64,
+) where T<:AbstractFloat
     get_position = t -> fill(NaN, 3)
     n_grains = params[:number_of_grains]
 
     ol = Mineral(
+        float_type=T,
         phase=olivine,
         fabric=olivine_A,
         regime=matrix_dislocation,
@@ -100,6 +102,7 @@ function run_simple_shear_3d(
     has_enstatite = enstatite in params[:phase_assemblage]
     ens = if has_enstatite
         Mineral(
+            float_type=T,
             phase=enstatite,
             fabric=enstatite_AB,
             regime=matrix_dislocation,
@@ -110,7 +113,7 @@ function run_simple_shear_3d(
         nothing
     end
 
-    deformation_gradient = Matrix{Float64}(I, 3, 3)
+    deformation_gradient = Matrix{T}(I, 3, 3)
 
     for t in 2:length(timestamps)
         time = timestamps[t-1]
@@ -149,99 +152,100 @@ end
 
     seeds = SEEDS_1000[1:3]  # Reduced from 500 for fast testing.
     n_seeds = length(seeds)
-    nthreads = Threads.nthreads()
 
-    for switch_time_Ma in [0.0, 1.0, 2.5, Inf]
-        @testset "switch_time=$(switch_time_Ma) Ma" begin
-            params = params_fraters2021(; number_of_grains=n_grains)
-            switch_time = switch_time_Ma * 1e6
-            has_enstatite = enstatite in params[:phase_assemblage]
+    for T in (Float64, Float32)
+        for switch_time_Ma in [0.0, 1.0, 2.5, Inf]
+            @testset "switch_time=$(switch_time_Ma) Ma T=$T" begin
+                params = params_fraters2021(; number_of_grains=n_grains)
+                switch_time = switch_time_Ma * 1e6
+                has_enstatite = enstatite in params[:phase_assemblage]
 
-            # Output arrays for [100] mean direction angles (per seed, per timestep).
-            olA_from_proj_XZ = zeros(n_seeds, n_timestamps)
-            olA_from_proj_YX = zeros(n_seeds, n_timestamps)
-            ens_from_proj_XZ = zeros(n_seeds, n_timestamps)
-            ens_from_proj_YX = zeros(n_seeds, n_timestamps)
-            # Output arrays for M-index (CPO strength).
-            olA_strength = zeros(n_seeds, n_timestamps)
-            ens_strength = zeros(n_seeds, n_timestamps)
+                # Output arrays for [100] mean direction angles (per seed, per timestep).
+                olA_from_proj_XZ = zeros(n_seeds, n_timestamps)
+                olA_from_proj_YX = zeros(n_seeds, n_timestamps)
+                ens_from_proj_XZ = zeros(n_seeds, n_timestamps)
+                ens_from_proj_YX = zeros(n_seeds, n_timestamps)
+                # Output arrays for M-index (CPO strength).
+                olA_strength = zeros(n_seeds, n_timestamps)
+                ens_strength = zeros(n_seeds, n_timestamps)
 
-            # Run seeds in parallel — each seed creates independent Mineral objects.
-            Threads.@threads for s in 1:n_seeds
-                seed = seeds[s]
-                ol, ens_mineral = run_simple_shear_3d(
-                    params, timestamps, get_L_initial, get_L_final, switch_time;
-                    seed=seed,
-                )
+                # Run seeds in parallel — each seed creates independent Mineral objects.
+                Threads.@threads for s in 1:n_seeds
+                    seed = seeds[s]
+                    ol, ens_mineral = run_simple_shear_3d(
+                        params, timestamps, get_L_initial, get_L_final, switch_time;
+                        seed=seed, float_type=T,
+                    )
 
-                # Post-process olivine: Bingham average a-axis at each timestep.
-                olA_resampled, _ = resample_orientations(
-                    ol.orientations, ol.fractions; seed=seed,
-                )
-                for i in 1:n_timestamps
-                    v = bingham_average(olA_resampled[i]; axis="a")
-                    olA_from_proj_XZ[s, i] = smallest_angle(v, v .- v .* [0, 1, 0])
-                    olA_from_proj_YX[s, i] = smallest_angle(v, v .- v .* [0, 0, 1])
-                end
-
-                # M-index at each timestep.
-                olA_down, _ = resample_orientations(
-                    ol.orientations, ol.fractions; seed=seed, n_samples=n_samples_mindex,
-                )
-                for i in 1:n_timestamps
-                    olA_strength[s, i] = misorientation_index(olA_down[i], orthorhombic)
-                end
-
-                # Post-process enstatite.
-                if has_enstatite && ens_mineral !== nothing
-                    ens_resampled, _ = resample_orientations(
-                        ens_mineral.orientations, ens_mineral.fractions; seed=seed,
+                    # Post-process olivine: Bingham average a-axis at each timestep.
+                    olA_resampled, _ = resample_orientations(
+                        ol.orientations, ol.fractions; seed=seed,
                     )
                     for i in 1:n_timestamps
-                        v = bingham_average(ens_resampled[i]; axis="a")
-                        ens_from_proj_XZ[s, i] = smallest_angle(v, v .- v .* [0, 1, 0])
-                        ens_from_proj_YX[s, i] = smallest_angle(v, v .- v .* [0, 0, 1])
+                        v = bingham_average(olA_resampled[i]; axis="a")
+                        olA_from_proj_XZ[s, i] = smallest_angle(v, v .- v .* [0, 1, 0])
+                        olA_from_proj_YX[s, i] = smallest_angle(v, v .- v .* [0, 0, 1])
                     end
-                    ens_down, _ = resample_orientations(
-                        ens_mineral.orientations, ens_mineral.fractions; seed=seed,
-                        n_samples=n_samples_mindex,
+
+                    # M-index at each timestep.
+                    olA_down, _ = resample_orientations(
+                        ol.orientations, ol.fractions; seed=seed, n_samples=n_samples_mindex,
                     )
                     for i in 1:n_timestamps
-                        ens_strength[s, i] = misorientation_index(
-                            ens_down[i], orthorhombic,
+                        olA_strength[s, i] = misorientation_index(olA_down[i], orthorhombic)
+                    end
+
+                    # Post-process enstatite.
+                    if has_enstatite && ens_mineral !== nothing
+                        ens_resampled, _ = resample_orientations(
+                            ens_mineral.orientations, ens_mineral.fractions; seed=seed,
                         )
+                        for i in 1:n_timestamps
+                            v = bingham_average(ens_resampled[i]; axis="a")
+                            ens_from_proj_XZ[s, i] = smallest_angle(v, v .- v .* [0, 1, 0])
+                            ens_from_proj_YX[s, i] = smallest_angle(v, v .- v .* [0, 0, 1])
+                        end
+                        ens_down, _ = resample_orientations(
+                            ens_mineral.orientations, ens_mineral.fractions; seed=seed,
+                            n_samples=n_samples_mindex,
+                        )
+                        for i in 1:n_timestamps
+                            ens_strength[s, i] = misorientation_index(
+                                ens_down[i], orthorhombic,
+                            )
+                        end
                     end
                 end
-            end
 
-            # Ensemble averages over seeds.
-            olA_from_proj_XZ_mean = mean(olA_from_proj_XZ, dims=1)[1, :]
-            olA_from_proj_YX_mean = mean(olA_from_proj_YX, dims=1)[1, :]
-            olA_strength_mean     = mean(olA_strength, dims=1)[1, :]
+                # Ensemble averages over seeds.
+                olA_from_proj_XZ_mean = mean(olA_from_proj_XZ, dims=1)[1, :]
+                olA_from_proj_YX_mean = mean(olA_from_proj_YX, dims=1)[1, :]
+                olA_strength_mean     = mean(olA_strength, dims=1)[1, :]
 
-            # Sanity checks: angles in [0, 90].
-            @test all(0 .<= olA_from_proj_XZ_mean .<= 90)
-            @test all(0 .<= olA_from_proj_YX_mean .<= 90)
+                # Sanity checks: angles in [0, 90].
+                @test all(0 .<= olA_from_proj_XZ_mean .<= 90)
+                @test all(0 .<= olA_from_proj_YX_mean .<= 90)
 
-            # M-index in [0, 1] and texture develops.
-            @test all(0 .<= olA_strength_mean .<= 1)
-            @test olA_strength_mean[end] > 0.01
+                # M-index in [0, 1] and texture develops.
+                @test all(0 .<= olA_strength_mean .<= 1)
+                @test olA_strength_mean[end] > 0.01
 
-            if switch_time_Ma == Inf
-                # Pure initial shear (XZ): a-axis aligns near XZ plane.
-                @test olA_from_proj_XZ_mean[end] < 30
-            elseif switch_time_Ma == 0.0
-                # Pure final shear (YX): a-axis aligns near YX plane.
-                @test olA_from_proj_YX_mean[end] < 30
-            end
+                if switch_time_Ma == Inf
+                    # Pure initial shear (XZ): a-axis aligns near XZ plane.
+                    @test olA_from_proj_XZ_mean[end] < 30
+                elseif switch_time_Ma == 0.0
+                    # Pure final shear (YX): a-axis aligns near YX plane.
+                    @test olA_from_proj_YX_mean[end] < 30
+                end
 
-            if has_enstatite
-                ens_from_proj_XZ_mean = mean(ens_from_proj_XZ, dims=1)[1, :]
-                ens_from_proj_YX_mean = mean(ens_from_proj_YX, dims=1)[1, :]
-                ens_strength_mean     = mean(ens_strength, dims=1)[1, :]
-                @test all(0 .<= ens_from_proj_XZ_mean .<= 90)
-                @test all(0 .<= ens_from_proj_YX_mean .<= 90)
-                @test all(0 .<= ens_strength_mean .<= 1)
+                if has_enstatite
+                    ens_from_proj_XZ_mean = mean(ens_from_proj_XZ, dims=1)[1, :]
+                    ens_from_proj_YX_mean = mean(ens_from_proj_YX, dims=1)[1, :]
+                    ens_strength_mean     = mean(ens_strength, dims=1)[1, :]
+                    @test all(0 .<= ens_from_proj_XZ_mean .<= 90)
+                    @test all(0 .<= ens_from_proj_YX_mean .<= 90)
+                    @test all(0 .<= ens_strength_mean .<= 1)
+                end
             end
         end
     end

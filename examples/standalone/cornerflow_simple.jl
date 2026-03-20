@@ -10,7 +10,10 @@
 #   (d) M*=125 – same
 #
 # Uses GLMakie for plotting.  Run from the examples/standalone directory:
-#   julia --project=. cornerflow_simple.jl
+#   julia --project=. -t auto cornerflow_simple.jl
+#
+# '-t auto' enables multi-threading: pathlines run in parallel across cores,
+# and the per-grain D-Rex loop is also threaded within each pathline.
 
 using LinearAlgebra
 using DRex
@@ -26,7 +29,8 @@ const PATHLINE_ENDS   = (-0.1, -0.3, -0.54, -0.78)   # fraction of domain height
 const DOMAIN_COORDS   = ("X", "Z")
 const MAX_STRAIN      = 10.0
 const GBM_MOBILITIES  = (10, 125)                     # M* values for the two columns
-const OUT_FIGURE      = "cornerflow2d_simple_example.png"
+const OUT_FIGURE_F64  = "cornerflow2d_simple_example.png"
+const OUT_FIGURE_F32  = "cornerflow2d_simple_example_float32.png"
 
 const MIN_COORDS = [0.0, 0.0, -DOMAIN_HEIGHT]
 const MAX_COORDS = [DOMAIN_WIDTH, 0.0, 0.0]
@@ -42,14 +46,17 @@ final_locations = [
 # ── Single-pathline CPO solver ───────────────────────────────────────────────
 
 function run_pathline(params, f_velocity, f_velocity_grad,
-                      min_coords, max_coords, final_location)
+                      min_coords, max_coords, final_location;
+                      float_type::Type{T}=Float64) where T<:AbstractFloat
     olA = Mineral(
+        float_type = T,
         phase   = olivine,
         fabric  = olivine_A,
         regime  = matrix_dislocation,
         n_grains = params[:number_of_grains],
     )
     ens = Mineral(
+        float_type = T,
         phase   = enstatite,
         fabric  = enstatite_AB,
         regime  = matrix_dislocation,
@@ -66,7 +73,7 @@ function run_pathline(params, f_velocity, f_velocity_grad,
     positions = [collect(f_position(t)) for t in timestamps]
     velocity_gradients = [f_velocity_grad(NaN, x) for x in positions]
 
-    deformation_gradient = Matrix{Float64}(I, 3, 3)
+    deformation_gradient = Matrix{T}(I, 3, 3)
     strains = zeros(length(timestamps))
 
     Mstar = params[:gbm_mobility]
@@ -104,49 +111,47 @@ end
 
 # ── Run all pathlines for both M* values ──────────────────────────────────────
 
-cases = Dict{Int, Dict{Symbol, Vector}}()
+function run_all_cases(float_type::Type{T}) where T<:AbstractFloat
+    cases = Dict{Int, Dict{Symbol, Vector}}()
+    for (mi, Mstar) in enumerate(GBM_MOBILITIES)
+        params = default_params()
+        params[:phase_assemblage] = [olivine, enstatite]
+        params[:phase_fractions]  = [0.7, 0.3]
+        params[:gbm_mobility]     = Float64(Mstar)
+        params[:number_of_grains] = 5000
 
-for (mi, Mstar) in enumerate(GBM_MOBILITIES)
-    params = default_params()
-    params[:phase_assemblage] = [olivine, enstatite]
-    params[:phase_fractions]  = [0.7, 0.3]
-    params[:gbm_mobility]     = Float64(Mstar)
-    params[:number_of_grains] = 5000
+        n_paths = length(final_locations)
+        path_results = Vector{Any}(undef, n_paths)
 
-    case = Dict{Symbol,Vector}(
-        :strains    => Vector{Vector{Float64}}(),
-        :positions  => Vector{Vector{Vector{Float64}}}(),
-        :m_indices  => Vector{Vector{Float64}}(),
-        :directions => Vector{Matrix{Float64}}(),
-    )
+        Threads.@threads for i in eachindex(final_locations)
+            println("[$T] M*=$Mstar  Pathline $i / $n_paths  (thread $(Threads.threadid()))")
+            _, positions, strains, olA, _ = run_pathline(
+                params, f_velocity, f_velocity_grad, MIN_COORDS, MAX_COORDS, final_locations[i];
+                float_type=T,
+            )
+            path_results[i] = (positions, strains, compute_diagnostics(olA)...)
+        end
 
-    for (i, final_loc) in enumerate(final_locations)
-        println("M*=$Mstar  Pathline $i / $(length(final_locations))")
-        _, positions, strains, olA, _ = run_pathline(
-            params, f_velocity, f_velocity_grad, MIN_COORDS, MAX_COORDS, final_loc,
+        case = Dict{Symbol,Vector}(
+            :strains    => Vector{Vector{Float64}}(),
+            :positions  => Vector{Vector{Vector{Float64}}}(),
+            :m_indices  => Vector{Vector{Float64}}(),
+            :directions => Vector{Matrix{Float64}}(),
         )
-        m_indices, directions = compute_diagnostics(olA)
-        push!(case[:strains], strains)
-        push!(case[:positions], positions)
-        push!(case[:m_indices], m_indices)
-        push!(case[:directions], directions)
+        for i in 1:n_paths
+            positions, strains, m_indices, directions = path_results[i]
+            push!(case[:strains], strains)
+            push!(case[:positions], positions)
+            push!(case[:m_indices], m_indices)
+            push!(case[:directions], directions)
+        end
+        cases[mi] = case
     end
-    cases[mi] = case
+    return cases
 end
 
-# ── Plotting with GLMakie (4-panel layout matching Fig. 10) ──────────────────
-
-fig = Figure(size = (1200, 1100))
-
-# Shared strain color range
-strain_min = 0.0
-strain_max = maximum(vcat(maximum.(cases[1][:strains]), maximum.(cases[2][:strains])))
-cmap = :batlow
-cmap_rev = Reverse(:batlow)
-cgrad_rev = cgrad(:batlow, rev=true)
-
-markers_list = [:rect, :circle, :utriangle, :star5]
-pathline_labels = [
+const markers_list = [:rect, :circle, :utriangle, :star5]
+const pathline_labels = [
     "zf = $(round(z * DOMAIN_HEIGHT / 1e3; digits=0)) km"
     for z in PATHLINE_ENDS
 ]
@@ -154,7 +159,7 @@ to_km(x) = x / 1e3
 
 # ── Helper: draw domain panel (a) or (b) ─────────────────────────────────────
 
-function draw_domain_panel!(fig_pos, panel_label, case)
+function draw_domain_panel!(fig_pos, panel_label, case, strain_min, strain_max, cgrad_rev, cmap_rev)
     ax = Axis(fig_pos;
         xlabel = "x (km)",
         ylabel = "z (km)",
@@ -177,11 +182,11 @@ function draw_domain_panel!(fig_pos, panel_label, case)
     speed[speed .== 0] .= NaN
     ux_norm = ux ./ speed
     uz_norm = uz ./ speed
-    arrows!(ax,
+    arrows2d!(ax,
         vec(collect(xs) * ones(nz)') ./ 1e3,
         vec(ones(nx) * collect(zs)') ./ 1e3,
         vec(ux_norm), vec(uz_norm);
-        arrowsize = 8, lengthscale = 12,
+        tipwidth = 8, tiplength = 12,
         color = (:black, 0.5))
 
     for i in eachindex(final_locations)
@@ -225,7 +230,7 @@ end
 
 # ── Helper: draw M-index vs strain panel (c) or (d) ──────────────────────────
 
-function draw_strength_panel!(fig_pos, panel_label, case)
+function draw_strength_panel!(fig_pos, panel_label, case, strain_min, strain_max, cmap_rev)
     ax = Axis(fig_pos;
         xlabel = "Strain (ε)",
         ylabel = "CPO strength (M-index)",
@@ -250,17 +255,36 @@ function draw_strength_panel!(fig_pos, panel_label, case)
     return ax
 end
 
-# ── Assemble figure ──────────────────────────────────────────────────────────
-# Row 1: (a) M*=10, Row 2: (b) M*=125, Row 3: (c) and (d) side by side
+# ── Run and plot for Float64 and Float32 ─────────────────────────────────────
 
-draw_domain_panel!(fig[1, 1:2], "(a) M* = 10",  cases[1])
-draw_domain_panel!(fig[2, 1:2], "(b) M* = 125", cases[2])
-draw_strength_panel!(fig[3, 1], "(c) M* = 10",  cases[1])
-draw_strength_panel!(fig[3, 2], "(d) M* = 125", cases[2])
+println("Running on $(Threads.nthreads()) thread(s)")
 
-Colorbar(fig[0, 1:2]; colormap = cmap_rev, colorrange = (strain_min, strain_max),
-    label = "Strain (ε)", vertical = false, flipaxis = false,
-    width = Relative(0.5), height = 15)
+for (float_type, out_figure) in ((Float64, OUT_FIGURE_F64), (Float32, OUT_FIGURE_F32))
+    println("\n=== Float type: $float_type ===")
+    t_total = @elapsed cases = run_all_cases(float_type)
+    println("Total computation time: $(round(t_total; digits=1)) s")
 
-save(OUT_FIGURE, fig; px_per_unit = 2)
-println("\nFigure saved to $OUT_FIGURE")
+    # ── Plotting with GLMakie (4-panel layout matching Fig. 10) ────────────────
+
+    strain_min = 0.0
+    strain_max = maximum(vcat(maximum.(cases[1][:strains]), maximum.(cases[2][:strains])))
+    cmap_rev  = Reverse(:batlow)
+    cgrad_rev = cgrad(:batlow, rev=true)
+
+    fig = Figure(size = (1200, 1100))
+
+    # ── Assemble figure ────────────────────────────────────────────────────────
+    # Row 1: (a) M*=10, Row 2: (b) M*=125, Row 3: (c) and (d) side by side
+
+    draw_domain_panel!(fig[1, 1:2], "(a) M* = 10",  cases[1], strain_min, strain_max, cgrad_rev, cmap_rev)
+    draw_domain_panel!(fig[2, 1:2], "(b) M* = 125", cases[2], strain_min, strain_max, cgrad_rev, cmap_rev)
+    draw_strength_panel!(fig[3, 1], "(c) M* = 10",  cases[1], strain_min, strain_max, cmap_rev)
+    draw_strength_panel!(fig[3, 2], "(d) M* = 125", cases[2], strain_min, strain_max, cmap_rev)
+
+    Colorbar(fig[0, 1:2]; colormap = cmap_rev, colorrange = (strain_min, strain_max),
+        label = "Strain (ε)", vertical = false, flipaxis = false,
+        width = Relative(0.5), height = 15)
+
+    save(out_figure, fig; px_per_unit = 2)
+    println("Figure saved to $out_figure")
+end  # for (float_type, out_figure)

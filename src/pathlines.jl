@@ -21,11 +21,11 @@ position at time `t` (negative times, since integration is backwards).
 - `regular_steps` — if set, return regularly-spaced timestamps (default: solver timestamps)
 """
 function get_pathline(
-    final_location::AbstractVector{Float64},
+    final_location::AbstractVector{<:AbstractFloat},
     get_velocity,
     get_velocity_gradient,
-    min_coords::AbstractVector{Float64},
-    max_coords::AbstractVector{Float64};
+    min_coords::AbstractVector{<:AbstractFloat},
+    max_coords::AbstractVector{<:AbstractFloat};
     max_strain::Float64=10.0,
     regular_steps::Union{Int,Nothing}=nothing,
 )

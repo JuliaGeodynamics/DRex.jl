@@ -8,7 +8,10 @@ Since Julia is a compiled language this runs much faster than the python version
 
 ## Overview
 
-DRex.jl implements the D-Rex model (Kaminski & Ribe, 2001; 2004) for computing the evolution of crystal orientations and grain size distributions during plastic deformation. The key routines are designed to be **allocation-free** using `StaticArrays.jl`, making the inner-loop grain-level computations highly efficient.
+DRex.jl implements the D-Rex model (Kaminski & Ribe, 2001; 2004) for computing the evolution of crystal orientations and grain size distributions during plastic deformation. The key routines are designed to be **allocation-free** using `StaticArrays.jl`, making the inner-loop grain-level computations highly efficient. It also supports parallel processing through Julia's multithreading capabilities, provided you start julia with:
+```julia
+julia -t auto
+```
 
 ### Main Features
 

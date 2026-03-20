@@ -105,7 +105,7 @@ end
 Compute Bingham average (antipodally symmetric mean) of orientation matrices.
 `orientations` is N×3×3. Returns the mean direction as a 3-vector.
 """
-function bingham_average(orientations::AbstractArray{Float64,3}; axis::String="a")
+function bingham_average(orientations::AbstractArray{<:AbstractFloat,3}; axis::String="a")
     row = axis == "a" ? 1 : axis == "b" ? 2 : axis == "c" ? 3 :
         throw(ArgumentError("axis must be 'a', 'b', or 'c'"))
     scatter = _scatter_matrix(orientations, row)
@@ -121,7 +121,7 @@ end
 Extract largest principal strain value and maximum extension axis from the 3×3
 deformation gradient. Returns (strain, axis).
 """
-function finite_strain(deformation_gradient::AbstractMatrix{Float64})
+function finite_strain(deformation_gradient::AbstractMatrix{<:AbstractFloat})
     B = deformation_gradient * deformation_gradient'
     vals, vecs = eigen(Symmetric(B))
     return sqrt(vals[end]) - 1, vecs[:, end]
@@ -132,7 +132,7 @@ end
 
 Compute Point, Girdle, Random symmetry diagnostics. Returns (P, G, R).
 """
-function symmetry_pgr(orientations::AbstractArray{Float64,3}; axis::String="a")
+function symmetry_pgr(orientations::AbstractArray{<:AbstractFloat,3}; axis::String="a")
     row = axis == "a" ? 1 : axis == "b" ? 2 : axis == "c" ? 3 :
         throw(ArgumentError("axis must be 'a', 'b', or 'c'"))
     scatter = _scatter_matrix(orientations, row)
@@ -149,7 +149,7 @@ end
 
 Calculate M-index for polycrystal orientations.
 """
-function misorientation_index(orientations::AbstractArray{Float64,3},
+function misorientation_index(orientations::AbstractArray{<:AbstractFloat,3},
                               system::LatticeSystem; bins::Union{Int,Nothing}=nothing)
     θmax = _max_misorientation(system)
     mis_count, bin_edges = misorientation_hist(orientations, system; bins=bins)
@@ -163,7 +163,7 @@ end
 
 Calculate coaxial "BA" index. Returns value in [0, 1].
 """
-function coaxial_index(orientations::AbstractArray{Float64,3};
+function coaxial_index(orientations::AbstractArray{<:AbstractFloat,3};
                        axis1::String="b", axis2::String="a")
     P1, G1, _ = symmetry_pgr(orientations; axis=axis1)
     P2, G2, _ = symmetry_pgr(orientations; axis=axis2)
@@ -175,8 +175,8 @@ end
 
 Get smallest angle (degrees) between a unit vector and a bidirectional axis.
 """
-function smallest_angle(vector::AbstractVector{Float64}, axis::AbstractVector{Float64};
-                        plane::Union{AbstractVector{Float64},Nothing}=nothing)
+function smallest_angle(vector::AbstractVector{<:AbstractFloat}, axis::AbstractVector{<:AbstractFloat};
+                        plane::Union{AbstractVector{<:AbstractFloat},Nothing}=nothing)
     v = plane !== nothing ? vector .- plane .* dot(vector, plane) : vector
     cosval = clamp(dot(v, axis) / (norm(v) * norm(axis)), -1.0, 1.0)
     angle = rad2deg(acos(cosval))

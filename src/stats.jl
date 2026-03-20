@@ -12,8 +12,8 @@ Accepts either:
   (P×M×3×3 and P×M arrays)
 """
 function resample_orientations(
-    orientations::Vector{<:AbstractArray{Float64,3}},
-    fractions::Vector{<:AbstractVector{Float64}};
+    orientations::Vector{<:AbstractArray{<:AbstractFloat,3}},
+    fractions::Vector{<:AbstractVector{<:AbstractFloat}};
     n_samples::Union{Int,Nothing}=nothing,
     seed::Union{Int,Nothing}=nothing,
 )
@@ -27,8 +27,9 @@ function resample_orientations(
     M = size(orientations[1], 1)
     ns = n_samples === nothing ? M : n_samples
 
-    out_orientations = Vector{Array{Float64,3}}(undef, P)
-    out_fractions = Vector{Vector{Float64}}(undef, P)
+    ET = eltype(eltype(orientations))
+    out_orientations = Vector{Array{ET,3}}(undef, P)
+    out_fractions = Vector{Vector{ET}}(undef, P)
 
     for i in 1:P
         frac = fractions[i]
@@ -41,8 +42,8 @@ function resample_orientations(
         samples = rand(rng, ns)
         count_less = searchsortedlast.(Ref(cumfrac), samples)
         count_less = clamp.(count_less, 1, M_i)
-        out_o = Array{Float64,3}(undef, ns, 3, 3)
-        out_f = Vector{Float64}(undef, ns)
+        out_o = Array{ET,3}(undef, ns, 3, 3)
+        out_f = Vector{ET}(undef, ns)
         for s in 1:ns
             idx = sort_idx[count_less[s]]
             out_o[s, :, :] .= orient[idx, :, :]
@@ -60,7 +61,7 @@ end
 Lower-triangular scatter (inertia) matrix for orientation data.
 `orientations` is Nx3x3, `row` is 1, 2, or 3 (for a, b, c axis).
 """
-function _scatter_matrix(orientations::AbstractArray{Float64,3}, row::Int)
+function _scatter_matrix(orientations::AbstractArray{<:AbstractFloat,3}, row::Int)
     scatter = zeros(3, 3)
     n = size(orientations, 1)
     @inbounds for g in 1:n
@@ -88,7 +89,7 @@ per pair (fix one side, vary the other).
 The inner loop is allocation-free: symmetry-applied quaternions are precomputed
 per grain (n × nsym tuples) and the histogram is built on-the-fly.
 """
-function misorientation_hist(orientations::AbstractArray{Float64,3}, system::LatticeSystem;
+function misorientation_hist(orientations::AbstractArray{<:AbstractFloat,3}, system::LatticeSystem;
                              bins::Union{Int,Nothing}=nothing)
     all_ops = symmetry_operations(system)
     # Keep only proper rotation ops (quaternion vectors); discard reflections (matrices).
@@ -97,7 +98,7 @@ function misorientation_hist(orientations::AbstractArray{Float64,3}, system::Lat
     nsym = length(rot_ops)
 
     # Convert orientations to quaternions (scalar-last [x,y,z,w])
-    quats = Vector{NTuple{4,Float64}}(undef, n)
+    quats = Vector{NTuple{4,Float64}}(undef, n)  # always Float64 (post-processing)
     for i in 1:n
         R = @view orientations[i, :, :]
         q = _rotation_matrix_to_quat(R)
