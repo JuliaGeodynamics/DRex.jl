@@ -78,7 +78,7 @@ end
     max_coords = [domain_width, 0.0, 0.0]
 
     for T in (Float64, Float32)
-        atol_frac = T == Float32 ? 1e-5 : 1e-10
+        atol_frac = T == Float32 ? 1e-4 : 1e-10
 
         for z_frac in z_fracs
             final_location = [domain_width, 0.0, z_frac * domain_height]

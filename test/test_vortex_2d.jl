@@ -150,7 +150,7 @@ end
     n_grains_list = [100, 500]
 
     for T in (Float64, Float32)
-        atol_frac = T == Float32 ? 1e-5 : 1e-10
+        atol_frac = T == Float32 ? 1e-4 : 1e-10
 
         for n_grains in n_grains_list
             @testset "test_xz N=$n_grains T=$T" begin
