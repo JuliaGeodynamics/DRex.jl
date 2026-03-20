@@ -66,22 +66,22 @@ Store polycrystal texture data for a single mineral phase.
 - `orientations`: list of orientation snapshots (Vector{Array{Float64,3}})
 - `seed`: RNG seed for initial random orientations
 """
-mutable struct Mineral
+mutable struct Mineral{T<:AbstractFloat}
     phase::MineralPhase
     fabric::MineralFabric
     regime::DeformationRegime
     n_grains::Int
-    fractions::Vector{Vector{Float64}}
-    orientations::Vector{Array{Float64,3}}
+    fractions::Vector{Vector{T}}
+    orientations::Vector{Array{T,3}}
     seed::Union{Int,Nothing}
     lband::Union{Int,Nothing}
     uband::Union{Int,Nothing}
 end
 
-function Base.show(io::IO, ::MIME"text/plain", m::Mineral)
+function Base.show(io::IO, ::MIME"text/plain", m::Mineral{T}) where T
     n_steps = length(m.fractions)
     frac = m.fractions[end]
-    print(io, "Mineral (", m.phase, ", ", m.fabric, ", ", m.regime, ")\n")
+    print(io, "Mineral{", T, "} (", m.phase, ", ", m.fabric, ", ", m.regime, ")\n")
     print(io, "  grains    : ", m.n_grains, "\n")
     print(io, "  seed      : ", something(m.seed, "none"), "\n")
     print(io, "  timesteps : ", n_steps, "\n")
@@ -95,8 +95,8 @@ function Base.show(io::IO, ::MIME"text/plain", m::Mineral)
     end
 end
 
-function Base.show(io::IO, m::Mineral)
-    print(io, "Mineral(", m.phase, ", ", m.fabric, ", n=", m.n_grains,
+function Base.show(io::IO, m::Mineral{T}) where T
+    print(io, "Mineral{", T, "}(", m.phase, ", ", m.fabric, ", n=", m.n_grains,
           ", steps=", length(m.fractions), ")")
 end
 
@@ -107,40 +107,40 @@ end
 Construct a Mineral with optional initial texture.
 """
 function Mineral(;
+    float_type::Type{T}=Float64,
     phase::MineralPhase=olivine,
     fabric::MineralFabric=olivine_A,
     regime::DeformationRegime=matrix_dislocation,
     n_grains::Int=DefaultParams().number_of_grains,
-    fractions_init::Union{Vector{Float64},Nothing}=nothing,
-    orientations_init::Union{Array{Float64,3},Nothing}=nothing,
+    fractions_init=nothing,
+    orientations_init=nothing,
     seed::Union{Int,Nothing}=nothing,
     lband::Union{Int,Nothing}=nothing,
     uband::Union{Int,Nothing}=nothing,
-)
-    if fractions_init === nothing
-        fractions_init = fill(1.0 / n_grains, n_grains)
-    end
-    if orientations_init === nothing
-        rng = seed === nothing ? Random.default_rng() : Random.MersenneTwister(seed)
-        orientations_init = _random_orientations(n_grains, rng)
-    end
+) where T<:AbstractFloat
+    rng = seed === nothing ? Random.default_rng() : Random.MersenneTwister(seed)
+    fractions_T = fractions_init === nothing ?
+        fill(one(T) / T(n_grains), n_grains) :
+        convert(Vector{T}, fractions_init)
+    orientations_T = orientations_init === nothing ?
+        _random_orientations(n_grains, rng, T) :
+        convert(Array{T,3}, orientations_init)
     if lband === nothing && uband === nothing && n_grains > 4632
         lband = 6000
         uband = 6000
     end
-    m = Mineral(phase, fabric, regime, n_grains,
-                [fractions_init], [orientations_init],
-                seed, lband, uband)
-    return m
+    return Mineral{T}(phase, fabric, regime, n_grains,
+                      [fractions_T], [orientations_T],
+                      seed, lband, uband)
 end
 
 """Generate random orientation matrices as n×3×3 array."""
-function _random_orientations(n::Int, rng::AbstractRNG)
-    orientations = Array{Float64,3}(undef, n, 3, 3)
+function _random_orientations(n::Int, rng::AbstractRNG, ::Type{T}=Float64) where T<:AbstractFloat
+    orientations = Array{T,3}(undef, n, 3, 3)
     for g in 1:n
         R = _random_rotation(rng)
         for i in 1:3, j in 1:3
-            orientations[g,i,j] = R[i,j]
+            orientations[g,i,j] = T(R[i,j])
         end
     end
     return orientations
@@ -171,13 +171,13 @@ Returns the updated deformation gradient.
 - `pathline` — (t_start, t_end, get_position) where get_position(t) returns 3D position
 """
 function update_orientations!(
-    mineral::Mineral,
+    mineral::Mineral{T},
     params::Dict{Symbol,Any},
-    deformation_gradient::Matrix{Float64},
+    deformation_gradient::AbstractMatrix,
     get_velocity_gradient,
     pathline::Tuple;
     get_regime=nothing,
-)
+) where T<:AbstractFloat
     time_start, time_end, get_position = pathline
     n_grains = mineral.n_grains
 
@@ -191,16 +191,16 @@ function update_orientations!(
     orientations_prev = mineral.orientations[end]
     fractions_prev = mineral.fractions[end]
 
-    # Flatten state: [F(9), orientations(n*9), fractions(n)]
-    y0 = vcat(
+    # Flatten state: [F(9), orientations(n*9), fractions(n)] — all promoted to T
+    y0 = T.(vcat(
         vec(deformation_gradient),
         vec(orientations_prev),
         fractions_prev,
-    )
+    ))
 
     function rhs!(dy, y, p, t)
         position = get_position(t)
-        vel_grad = get_velocity_gradient(t, position)
+        vel_grad = T.(get_velocity_gradient(t, position))
 
         if get_regime !== nothing
             mineral.regime = get_regime(t, position)
@@ -213,8 +213,8 @@ function update_orientations!(
         F_diff = vel_grad * F
         _, V = polar_decompose(F_diff)
 
-        ori_diff = Array{Float64,3}(undef, n_grains, 3, 3)
-        frac_diff = Vector{Float64}(undef, n_grains)
+        ori_diff = Array{T,3}(undef, n_grains, 3, 3)
+        frac_diff = Vector{T}(undef, n_grains)
 
         derivatives!(ori_diff, frac_diff,
                      mineral.regime, mineral.phase, mineral.fabric, n_grains,
@@ -271,7 +271,7 @@ Returns the updated deformation gradient tensor.
 function update_all!(
     minerals,
     params::Dict{Symbol,Any},
-    deformation_gradient::Matrix{Float64},
+    deformation_gradient::AbstractMatrix,
     get_velocity_gradient,
     pathline::Tuple;
     get_regime=nothing,

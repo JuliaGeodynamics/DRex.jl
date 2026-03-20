@@ -10,7 +10,7 @@
 Compute polar decomposition. If `left=true`, returns (R, V) with M = V*R.
 If `left=false`, returns (R, U) with M = R*U.
 """
-function polar_decompose(M::AbstractMatrix{Float64}; left::Bool=true)
+function polar_decompose(M::AbstractMatrix{<:AbstractFloat}; left::Bool=true)
     F = svd(M)
     R = F.U * F.Vt
     if left
@@ -27,7 +27,7 @@ end
 
 Calculate invariants of a second-order tensor. Returns (I₁, I₂, I₃).
 """
-function invariants_second_order(tensor::AbstractMatrix{Float64})
+function invariants_second_order(tensor::AbstractMatrix{<:AbstractFloat})
     I1 = tr(tensor)
     I2 = (tensor[1,1]*tensor[2,2] + tensor[2,2]*tensor[3,3] + tensor[3,3]*tensor[1,1]
          - tensor[1,2]*tensor[2,1] - tensor[2,3]*tensor[3,2] - tensor[3,1]*tensor[1,3])
@@ -59,7 +59,7 @@ end
 Decompose elastic tensor (6×6 Voigt matrix) into dilatational and deviatoric
 stiffness tensors. Returns (d_ij, v_ij) where d_ij = C_ijkk and v_ij = C_ikjk.
 """
-function voigt_decompose(matrix::AbstractMatrix{Float64})
+function voigt_decompose(matrix::AbstractMatrix{<:AbstractFloat})
     tensor = voigt_to_elastic_tensor(matrix)
     # d_ij = C_ijkk (contract last two indices)
     sd = zeros(3, 3)
@@ -83,7 +83,7 @@ end
 
 Create 4th-order elastic tensor from a 6×6 Voigt matrix.
 """
-function voigt_to_elastic_tensor(matrix::AbstractMatrix{Float64})
+function voigt_to_elastic_tensor(matrix::AbstractMatrix{<:AbstractFloat})
     tensor = Array{Float64,4}(undef, 3, 3, 3, 3)
     @inbounds for p in 1:3, q in 1:3
         δpq = (p == q) ? 1 : 0
@@ -102,7 +102,7 @@ end
 
 Create a 6×6 Voigt matrix from a 4th-order elastic tensor.
 """
-function elastic_tensor_to_voigt(tensor::AbstractArray{Float64,4})
+function elastic_tensor_to_voigt(tensor::AbstractArray{<:AbstractFloat,4})
     matrix = zeros(6, 6)
     counts = zeros(6, 6)
     @inbounds for p in 1:3, q in 1:3
@@ -124,7 +124,7 @@ end
 
 Create the 21-component Voigt vector from the 6×6 Voigt matrix.
 """
-function voigt_matrix_to_vector(matrix::AbstractMatrix{Float64})
+function voigt_matrix_to_vector(matrix::AbstractMatrix{<:AbstractFloat})
     v = zeros(21)
     for i in 1:3
         # Julia uses 1-based indexing; the cyclic modular arithmetic is adjusted
@@ -146,7 +146,7 @@ end
 
 Create the 6×6 Voigt matrix from the 21-component Voigt vector.
 """
-function voigt_vector_to_matrix(vector::AbstractVector{Float64})
+function voigt_vector_to_matrix(vector::AbstractVector{<:AbstractFloat})
     m = zeros(6, 6)
     for i in 1:3
         m[i, i] = vector[i]
@@ -179,7 +179,7 @@ end
 
 Rotate a 4th-order tensor using a 3×3 rotation matrix.
 """
-function rotate_tensor(tensor::AbstractArray{Float64,4}, rotation::AbstractMatrix{Float64})
+function rotate_tensor(tensor::AbstractArray{<:AbstractFloat,4}, rotation::AbstractMatrix{<:AbstractFloat})
     rotated = zeros(3, 3, 3, 3)
     @inbounds for i in 1:3, j in 1:3, k in 1:3, l in 1:3
         val = 0.0
@@ -197,7 +197,7 @@ end
 # ──────────────────────────────────────────────────────────────────────────────
 
 """Project 21-component Voigt vector onto monoclinic symmetry subspace (13 components)."""
-function mono_project(v::AbstractVector{Float64})
+function mono_project(v::AbstractVector{<:AbstractFloat})
     out = copy(v)
     for i in (10, 11, 13, 14, 16, 17, 19, 20)
         out[i] = 0.0
@@ -206,14 +206,14 @@ function mono_project(v::AbstractVector{Float64})
 end
 
 """Project 21-component Voigt vector onto orthorhombic symmetry subspace (9 components)."""
-function ortho_project(v::AbstractVector{Float64})
+function ortho_project(v::AbstractVector{<:AbstractFloat})
     out = copy(v)
     out[10:21] .= 0.0
     return out
 end
 
 """Project 21-component Voigt vector onto tetragonal symmetry subspace (6 components)."""
-function tetr_project(v::AbstractVector{Float64})
+function tetr_project(v::AbstractVector{<:AbstractFloat})
     out = ortho_project(v)
     for (i, j) in ((1, 2), (4, 5), (7, 8))
         avg = 0.5 * (v[i] + v[j])
@@ -224,7 +224,7 @@ function tetr_project(v::AbstractVector{Float64})
 end
 
 """Project 21-component Voigt vector onto hexagonal symmetry subspace (5 components)."""
-function hex_project(v::AbstractVector{Float64})
+function hex_project(v::AbstractVector{<:AbstractFloat})
     out = zeros(21)
     out[1] = out[2] = 3/8 * (v[1] + v[2]) + v[6]/(4*sqrt(2)) + v[9]/4
     out[3] = v[3]

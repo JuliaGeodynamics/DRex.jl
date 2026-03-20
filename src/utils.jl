@@ -17,12 +17,12 @@ end
 Apply grain boundary sliding for small grains. Modifies orientations and fractions in-place.
 """
 function apply_gbs!(
-    orientations::AbstractArray{Float64,3},
-    fractions::AbstractVector{Float64},
-    gbs_threshold::Float64,
-    orientations_prev::AbstractArray{Float64,3},
+    orientations::AbstractArray{T,3},
+    fractions::AbstractVector{T},
+    gbs_threshold::Real,
+    orientations_prev::AbstractArray{T,3},
     n_grains::Int
-)
+) where T<:AbstractFloat
     threshold = gbs_threshold / n_grains
     @inbounds for g in 1:n_grains
         if fractions[g] < threshold
@@ -42,13 +42,13 @@ end
 
 Extract deformation gradient, orientation matrices and grain fractions from flat ODE state vector.
 """
-function extract_vars(y::AbstractVector{Float64}, n_grains::Int)
+function extract_vars(y::AbstractVector{T}, n_grains::Int) where T<:AbstractFloat
     deformation_gradient = reshape(y[1:9], 3, 3)
     orientations_flat = @view y[10:n_grains*9+9]
     orientations = reshape(copy(orientations_flat), n_grains, 3, 3)
-    clamp!(orientations, -1.0, 1.0)
+    clamp!(orientations, -one(T), one(T))
     fractions = copy(@view y[n_grains*9+10:n_grains*10+9])
-    clamp!(fractions, 0.0, Inf)
+    clamp!(fractions, zero(T), T(Inf))
     s = sum(fractions)
     fractions ./= s
     return deformation_gradient, orientations, fractions

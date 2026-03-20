@@ -17,8 +17,8 @@ function _rotation_from_rotvec(rotvec::Vector{Float64})
 end
 
 """Generate random rotation matrices (Haar-distributed)."""
-function _random_rotations(n::Int; rng=Random.default_rng())
-    orientations = Array{Float64,3}(undef, n, 3, 3)
+function _random_rotations(n::Int; rng=Random.default_rng(), float_type::Type{T}=Float64) where T
+    orientations = Array{T,3}(undef, n, 3, 3)
     for g in 1:n
         A = randn(rng, 3, 3)
         Q, R = qr(A)
@@ -27,12 +27,13 @@ function _random_rotations(n::Int; rng=Random.default_rng())
             Qm[:, 1] .*= -1
         end
         for i in 1:3, j in 1:3
-            orientations[g, i, j] = Qm[i, j]
+            orientations[g, i, j] = T(Qm[i, j])
         end
     end
     return orientations
 end
 
+# Elasticity tests use Float64 only (elasticity_components requires Matrix{Float64}).
 @testset "Elasticity Components" begin
     @testset "olivine_Browaeys2004" begin
         C = Float64[
@@ -72,79 +73,80 @@ end
 end
 
 @testset "Symmetry PGR" begin
-    @testset "pointX" begin
-        rng = MersenneTwister(42)
-        n = 100
-        orientations = Array{Float64,3}(undef, n, 3, 3)
-        for i in 1:n
-            x = rand(rng)
-            rv = [0.0, x * π/18 - π/36, x * π/18 - π/36]
-            R = _rotation_from_rotvec(rv)
-            Rinv = inv(R)
-            for ii in 1:3, jj in 1:3
-                orientations[i, ii, jj] = Rinv[ii, jj]
+    for T in (Float64, Float32)
+        @testset "pointX T=$T" begin
+            rng = MersenneTwister(42)
+            n = 100
+            orientations = Array{T,3}(undef, n, 3, 3)
+            for i in 1:n
+                x = rand(rng)
+                rv = [0.0, x * π/18 - π/36, x * π/18 - π/36]
+                R = _rotation_from_rotvec(rv)
+                Rinv = inv(R)
+                for ii in 1:3, jj in 1:3
+                    orientations[i, ii, jj] = T(Rinv[ii, jj])
+                end
             end
+            P, G, R = symmetry_pgr(orientations; axis="a")
+            @test isapprox(P, 1.0, atol=0.05)
+            @test isapprox(G, 0.0, atol=0.05)
+            @test isapprox(R, 0.0, atol=0.05)
         end
-        P, G, R = symmetry_pgr(orientations; axis="a")
-        @test isapprox(P, 1.0, atol=0.05)
-        @test isapprox(G, 0.0, atol=0.05)
-        @test isapprox(R, 0.0, atol=0.05)
-    end
 
-    @testset "random" begin
-        orientations = _random_rotations(1000; rng=MersenneTwister(123))
-        P, G, R = symmetry_pgr(orientations; axis="a")
-        @test isapprox(P, 0.0, atol=0.15)
-        @test isapprox(G, 0.0, atol=0.15)
-        @test isapprox(R, 1.0, atol=0.15)
-    end
-
-    @testset "girdle" begin
-        rng = MersenneTwister(99)
-        n = 1000
-        # Quaternions with a=0, b=0, c,d random normal → girdle around Z
-        quats = zeros(n, 4)
-        quats[:, 3] = randn(rng, n)
-        quats[:, 4] = randn(rng, n)
-        # Normalize
-        for i in 1:n
-            q = quats[i, :]
-            q ./= norm(q)
-            quats[i, :] = q
+        @testset "random T=$T" begin
+            orientations = _random_rotations(1000; rng=MersenneTwister(123), float_type=T)
+            P, G, R = symmetry_pgr(orientations; axis="a")
+            @test isapprox(P, 0.0, atol=0.15)
+            @test isapprox(G, 0.0, atol=0.15)
+            @test isapprox(R, 1.0, atol=0.15)
         end
-        orientations = Array{Float64,3}(undef, n, 3, 3)
-        for i in 1:n
-            x, y, z, w = quats[i, :]
-            # Quaternion to rotation matrix
-            R = [
-                1-2*(y^2+z^2)  2*(x*y-z*w)    2*(x*z+y*w);
-                2*(x*y+z*w)    1-2*(x^2+z^2)  2*(y*z-x*w);
-                2*(x*z-y*w)    2*(y*z+x*w)    1-2*(x^2+y^2)
-            ]
-            for ii in 1:3, jj in 1:3
-                orientations[i, ii, jj] = R[ii, jj]
+
+        @testset "girdle T=$T" begin
+            rng = MersenneTwister(99)
+            n = 1000
+            quats = zeros(n, 4)
+            quats[:, 3] = randn(rng, n)
+            quats[:, 4] = randn(rng, n)
+            for i in 1:n
+                q = quats[i, :]
+                q ./= norm(q)
+                quats[i, :] = q
             end
+            orientations = Array{T,3}(undef, n, 3, 3)
+            for i in 1:n
+                x, y, z, w = quats[i, :]
+                R = [
+                    1-2*(y^2+z^2)  2*(x*y-z*w)    2*(x*z+y*w);
+                    2*(x*y+z*w)    1-2*(x^2+z^2)  2*(y*z-x*w);
+                    2*(x*z-y*w)    2*(y*z+x*w)    1-2*(x^2+y^2)
+                ]
+                for ii in 1:3, jj in 1:3
+                    orientations[i, ii, jj] = T(R[ii, jj])
+                end
+            end
+            P, G, R = symmetry_pgr(orientations; axis="a")
+            @test isapprox(P, 0.0, atol=0.1)
+            @test isapprox(G, 1.0, atol=0.1)
+            @test isapprox(R, 0.0, atol=0.1)
         end
-        P, G, R = symmetry_pgr(orientations; axis="a")
-        @test isapprox(P, 0.0, atol=0.1)
-        @test isapprox(G, 1.0, atol=0.1)
-        @test isapprox(R, 0.0, atol=0.1)
     end
 end
 
 @testset "Volume Weighting" begin
-    @testset "output_shape" begin
-        o1 = _random_rotations(1000; rng=MersenneTwister(1))
-        o2 = _random_rotations(1000; rng=MersenneTwister(2))
-        f1 = fill(1/1000, 1000)
-        f2 = fill(1/1000, 1000)
-        new_o, new_f = resample_orientations([o1, o2], [f1, f2])
-        @test size(new_o) == (2,)
-        @test size(new_o[1]) == (1000, 3, 3)
-        @test length(new_f[1]) == 1000
+    for T in (Float64, Float32)
+        @testset "output_shape T=$T" begin
+            o1 = _random_rotations(1000; rng=MersenneTwister(1), float_type=T)
+            o2 = _random_rotations(1000; rng=MersenneTwister(2), float_type=T)
+            f1 = fill(T(1)/T(1000), 1000)
+            f2 = fill(T(1)/T(1000), 1000)
+            new_o, new_f = resample_orientations([o1, o2], [f1, f2])
+            @test size(new_o) == (2,)
+            @test size(new_o[1]) == (1000, 3, 3)
+            @test length(new_f[1]) == 1000
 
-        new_o2, new_f2 = resample_orientations([o1, o2], [f1, f2]; n_samples=500)
-        @test size(new_o2[1]) == (500, 3, 3)
-        @test length(new_f2[1]) == 500
+            new_o2, new_f2 = resample_orientations([o1, o2], [f1, f2]; n_samples=500)
+            @test size(new_o2[1]) == (500, 3, 3)
+            @test length(new_f2[1]) == 500
+        end
     end
 end

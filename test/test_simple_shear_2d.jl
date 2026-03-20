@@ -31,56 +31,26 @@ using DRex: simple_shear_2d, strain_increment, finite_strain, smallest_angle
 end
 
 @testset "Simple Shear 2D OlivineA" begin
-    @testset "zero_recrystallisation" begin
-        seed = 8816
-        params = DRex.default_params()
-        params[:gbm_mobility] = 0.0
-        strain_rate = 1.0
-        timestamps = range(0, 1, length=25)
-        _, get_L = simple_shear_2d("Y", "X", strain_rate)
+    for T in (Float64, Float32)
+        atol_frac = T == Float32 ? 1e-5 : 1e-15
 
-        mineral = Mineral(
-            phase=olivine,
-            fabric=olivine_A,
-            regime=matrix_dislocation,
-            n_grains=params[:number_of_grains],
-            seed=seed,
-        )
-        deformation_gradient = Matrix{Float64}(I, 3, 3)
-        for t in 2:length(timestamps)
-            deformation_gradient = update_orientations!(
-                mineral,
-                params,
-                deformation_gradient,
-                get_L,
-                (timestamps[t-1], timestamps[t], t -> zeros(3)),
-            )
-        end
-        # With M*=0, fractions should not change
-        initial_fractions = mineral.fractions[1]
-        for frac in mineral.fractions[2:end]
-            @test isapprox(frac, initial_fractions, atol=1e-15)
-        end
-    end
-
-    @testset "grainsize_median" begin
-        for gbm_mobility in [50, 100, 150]
+        @testset "zero_recrystallisation T=$T" begin
             seed = 8816
             params = DRex.default_params()
-            params[:gbm_mobility] = Float64(gbm_mobility)
-            params[:nucleation_efficiency] = 5.0
+            params[:gbm_mobility] = 0.0
             strain_rate = 1.0
             timestamps = range(0, 1, length=25)
             _, get_L = simple_shear_2d("Y", "X", strain_rate)
 
             mineral = Mineral(
+                float_type=T,
                 phase=olivine,
                 fabric=olivine_A,
                 regime=matrix_dislocation,
                 n_grains=params[:number_of_grains],
                 seed=seed,
             )
-            deformation_gradient = Matrix{Float64}(I, 3, 3)
+            deformation_gradient = Matrix{T}(I, 3, 3)
             for t in 2:length(timestamps)
                 deformation_gradient = update_orientations!(
                     mineral,
@@ -90,11 +60,47 @@ end
                     (timestamps[t-1], timestamps[t], t -> zeros(3)),
                 )
             end
-            n_steps = length(timestamps)
-            medians = [median(mineral.fractions[i]) for i in 1:n_steps]
-            # After first step (nucleation sets in), medians should decrease
-            diffs = diff(medians)[2:end]
-            @test all(d -> d < 0, diffs)
+            # With M*=0, fractions should not change
+            initial_fractions = mineral.fractions[1]
+            for frac in mineral.fractions[2:end]
+                @test isapprox(frac, initial_fractions, atol=atol_frac)
+            end
+        end
+
+        @testset "grainsize_median T=$T" begin
+            for gbm_mobility in [50, 100, 150]
+                seed = 8816
+                params = DRex.default_params()
+                params[:gbm_mobility] = Float64(gbm_mobility)
+                params[:nucleation_efficiency] = 5.0
+                strain_rate = 1.0
+                timestamps = range(0, 1, length=25)
+                _, get_L = simple_shear_2d("Y", "X", strain_rate)
+
+                mineral = Mineral(
+                    float_type=T,
+                    phase=olivine,
+                    fabric=olivine_A,
+                    regime=matrix_dislocation,
+                    n_grains=params[:number_of_grains],
+                    seed=seed,
+                )
+                deformation_gradient = Matrix{T}(I, 3, 3)
+                for t in 2:length(timestamps)
+                    deformation_gradient = update_orientations!(
+                        mineral,
+                        params,
+                        deformation_gradient,
+                        get_L,
+                        (timestamps[t-1], timestamps[t], t -> zeros(3)),
+                    )
+                end
+                n_steps = length(timestamps)
+                medians = [median(mineral.fractions[i]) for i in 1:n_steps]
+                # After first step (nucleation sets in), medians should decrease
+                diffs = diff(medians)[2:end]
+                @test all(d -> d < 0, diffs)
+            end
         end
     end
 end

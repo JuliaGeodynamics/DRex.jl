@@ -40,14 +40,14 @@ end
 # Levi-Civita symbol (compile-time constant)
 # ──────────────────────────────────────────────────────────────────────────────
 
-const PERMUTATION_SYMBOL = SArray{Tuple{3,3,3},Float64}(
+const PERMUTATION_SYMBOL = SArray{Tuple{3,3,3},Int8}(
     # [i,j,k] with column-major ordering
     # ε_{1,j,k}
-     0.0,  0.0, 0.0,   0.0, 0.0,-1.0,   0.0, 1.0, 0.0,
+     0,  0, 0,   0, 0,-1,   0, 1, 0,
     # ε_{2,j,k}
-     0.0,  0.0, 1.0,   0.0, 0.0, 0.0,  -1.0, 0.0, 0.0,
+     0,  0, 1,   0, 0, 0,  -1, 0, 0,
     # ε_{3,j,k}
-     0.0, -1.0, 0.0,   1.0, 0.0, 0.0,   0.0, 0.0, 0.0,
+     0, -1, 0,   1, 0, 0,   0, 0, 0,
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -108,24 +108,25 @@ end
 Get normalised Critical Resolved Shear Stress for the given mineral phase and fabric.
 Returns a static vector (allocation-free).
 """
-function get_crss(phase::MineralPhase, fabric::MineralFabric)::SVector{4,Float64}
+function get_crss(phase::MineralPhase, fabric::MineralFabric,
+                  ::Type{T}=Float64)::SVector{4,T} where T<:AbstractFloat
     if phase == olivine
         if fabric == olivine_A
-            return SVector(1.0, 2.0, 3.0, Inf)
+            return SVector{4,T}(1, 2, 3, Inf)
         elseif fabric == olivine_B
-            return SVector(3.0, 2.0, 1.0, Inf)
+            return SVector{4,T}(3, 2, 1, Inf)
         elseif fabric == olivine_C
-            return SVector(3.0, 2.0, Inf, 1.0)
+            return SVector{4,T}(3, 2, Inf, 1)
         elseif fabric == olivine_D
-            return SVector(1.0, 1.0, 3.0, Inf)
+            return SVector{4,T}(1, 1, 3, Inf)
         elseif fabric == olivine_E
-            return SVector(3.0, 1.0, 2.0, Inf)
+            return SVector{4,T}(3, 1, 2, Inf)
         else
             throw(ArgumentError("unsupported olivine fabric: $fabric"))
         end
     elseif phase == enstatite
         if fabric == enstatite_AB
-            return SVector(Inf, Inf, Inf, 1.0)
+            return SVector{4,T}(Inf, Inf, Inf, 1)
         end
         throw(ArgumentError("unsupported enstatite fabric: $fabric"))
     end
@@ -142,13 +143,13 @@ end
 Calculate strain rate invariants for the four slip systems. Allocation-free.
 """
 @inline function _get_slip_invariants(
-    strain_rate::SMatrix{3,3,Float64,9},
-    orientation::SMatrix{3,3,Float64,9}
-)::SVector{4,Float64}
-    inv1 = zero(Float64)
-    inv2 = zero(Float64)
-    inv3 = zero(Float64)
-    inv4 = zero(Float64)
+    strain_rate::SMatrix{3,3,T,9},
+    orientation::SMatrix{3,3,T,9}
+)::SVector{4,T} where T<:AbstractFloat
+    inv1 = zero(T)
+    inv2 = zero(T)
+    inv3 = zero(T)
+    inv4 = zero(T)
     @inbounds for j in 1:3, i in 1:3
         s = strain_rate[i,j]
         # (010)[100]
@@ -170,9 +171,9 @@ Calculate deformation rate tensor (Schmid tensor). Allocation-free.
 """
 @inline function _get_deformation_rate(
     ::MineralPhase,
-    orientation::SMatrix{3,3,Float64,9},
-    slip_rates::SVector{4,Float64}
-)::SMatrix{3,3,Float64,9}
+    orientation::SMatrix{3,3,T,9},
+    slip_rates::SVector{4,T}
+)::SMatrix{3,3,T,9} where T<:AbstractFloat
     r1 = slip_rates[1]; r2 = slip_rates[2]; r3 = slip_rates[3]; r4 = slip_rates[4]
     return SMatrix{3,3,Float64}(ntuple(9) do idx
         j, i = fldmod1(idx, 3)  # column-major: (col, row)
@@ -189,11 +190,11 @@ end
 Calculate dimensionless slip rate on the softest slip system. Allocation-free.
 """
 @inline function _get_slip_rate_softest(
-    deformation_rate::SMatrix{3,3,Float64,9},
-    velocity_gradient::SMatrix{3,3,Float64,9}
-)::Float64
-    enumerator = zero(Float64)
-    denominator = zero(Float64)
+    deformation_rate::SMatrix{3,3,T,9},
+    velocity_gradient::SMatrix{3,3,T,9}
+)::T where T<:AbstractFloat
+    enumerator = zero(T)
+    denominator = zero(T)
     @inbounds for j in 1:3
         k = mod1(j + 1, 3)
         enumerator -= (velocity_gradient[j,k] - velocity_gradient[k,j]) *
@@ -204,8 +205,8 @@ Calculate dimensionless slip rate on the softest slip system. Allocation-free.
             denominator += 2 * deformation_rate[j,l]^2
         end
     end
-    if -1e-15 < denominator < 1e-15
-        return 0.0
+    if abs(denominator) < eps(T) * T(10)
+        return zero(T)
     end
     return enumerator / denominator
 end
@@ -216,11 +217,11 @@ end
 Calculate relative slip rates of the active slip systems for olivine. Allocation-free.
 """
 @inline function _get_slip_rates_olivine(
-    invariants::SVector{4,Float64},
+    invariants::SVector{4,T},
     slip_indices::SVector{4,Int},
-    crss::SVector{4,Float64},
-    deformation_exponent::Float64
-)::SVector{4,Float64}
+    crss::SVector{4,T},
+    deformation_exponent::T
+)::SVector{4,T} where T<:AbstractFloat
     i_inac = slip_indices[1]
     i_min  = slip_indices[2]
     i_int  = slip_indices[3]
@@ -231,11 +232,11 @@ Calculate relative slip rates of the active slip systems for olivine. Allocation
     ratio_int = prefactor * invariants[i_int] / crss[i_int]
 
     # Build the result
-    vals = MVector{4,Float64}(undef)
-    vals[i_inac] = 0.0
-    vals[i_min]  = ratio_min * abs(ratio_min)^(deformation_exponent - 1)
-    vals[i_int]  = ratio_int * abs(ratio_int)^(deformation_exponent - 1)
-    vals[i_max]  = 1.0
+    vals = MVector{4,T}(undef)
+    vals[i_inac] = zero(T)
+    vals[i_min]  = ratio_min * abs(ratio_min)^(deformation_exponent - one(T))
+    vals[i_int]  = ratio_int * abs(ratio_int)^(deformation_exponent - one(T))
+    vals[i_max]  = one(T)
     return SVector(vals)
 end
 
@@ -245,13 +246,13 @@ end
 Calculate the rotation rate for a grain. Allocation-free.
 """
 @inline function _get_orientation_change(
-    orientation::SMatrix{3,3,Float64,9},
-    velocity_gradient::SMatrix{3,3,Float64,9},
-    deformation_rate::SMatrix{3,3,Float64,9},
-    slip_rate_softest::Float64
-)::SMatrix{3,3,Float64,9}
+    orientation::SMatrix{3,3,T,9},
+    velocity_gradient::SMatrix{3,3,T,9},
+    deformation_rate::SMatrix{3,3,T,9},
+    slip_rate_softest::T
+)::SMatrix{3,3,T,9} where T<:AbstractFloat
     # Spin vector
-    spin = MVector{3,Float64}(undef)
+    spin = MVector{3,T}(undef)
     @inbounds for j in 1:3
         r = mod1(j + 1, 3)
         s = mod1(j + 2, 3)
@@ -260,9 +261,9 @@ Calculate the rotation rate for a grain. Allocation-free.
     end
 
     # orientation_change[p,q] = Σ_rs ε[q,r,s] * orientation[p,s] * spin[r]
-    return SMatrix{3,3,Float64}(ntuple(9) do idx
+    return SMatrix{3,3,T}(ntuple(9) do idx
         q, p = fldmod1(idx, 3)  # column-major: (col, row)
-        val = zero(Float64)
+        val = zero(T)
         @inbounds for s in 1:3, r in 1:3
             val += PERMUTATION_SYMBOL[q,r,s] * orientation[p,s] * spin[r]
         end
@@ -277,15 +278,15 @@ end
 Calculate strain energy due to dislocations for a grain. Allocation-free.
 """
 @inline function _get_strain_energy(
-    crss::SVector{4,Float64},
-    slip_rates::SVector{4,Float64},
+    crss::SVector{4,T},
+    slip_rates::SVector{4,T},
     slip_indices::SVector{4,Int},
-    slip_rate_softest::Float64,
-    stress_exponent::Float64,
-    deformation_exponent::Float64,
-    nucleation_efficiency::Float64
-)::Float64
-    strain_energy = zero(Float64)
+    slip_rate_softest::T,
+    stress_exponent::T,
+    deformation_exponent::T,
+    nucleation_efficiency::T
+)::T where T<:AbstractFloat
+    strain_energy = zero(T)
     @inbounds for i in 1:3
         dislocation_density = (1 / crss[i])^(deformation_exponent - stress_exponent) *
             abs(slip_rates[i] * slip_rate_softest)^(stress_exponent / deformation_exponent)
@@ -305,24 +306,23 @@ Returns (orientation_change::SMatrix{3,3}, strain_energy::Float64).
 @inline function _get_rotation_and_strain(
     phase::MineralPhase,
     fabric::MineralFabric,
-    orientation::SMatrix{3,3,Float64,9},
-    strain_rate::SMatrix{3,3,Float64,9},
-    velocity_gradient::SMatrix{3,3,Float64,9},
-    stress_exponent::Float64,
-    deformation_exponent::Float64,
-    nucleation_efficiency::Float64
-)
-    crss = get_crss(phase, fabric)
+    orientation::SMatrix{3,3,T,9},
+    strain_rate::SMatrix{3,3,T,9},
+    velocity_gradient::SMatrix{3,3,T,9},
+    stress_exponent::T,
+    deformation_exponent::T,
+    nucleation_efficiency::T
+) where T<:AbstractFloat
+    crss = get_crss(phase, fabric, T)
     slip_invariants = _get_slip_invariants(strain_rate, orientation)
 
-    # Handle all-zero invariants
-    if all(==(0.0), slip_invariants)
-        return SMatrix{3,3}(0.0,0.0,0.0, 0.0,0.0,0.0, 0.0,0.0,0.0), 0.0
-    end
-
     if phase == olivine
+        # Guard against division by zero in _get_slip_rates_olivine.
+        if all(==(zero(T)), slip_invariants)
+            return SMatrix{3,3,T}(0,0,0, 0,0,0, 0,0,0), zero(T)
+        end
         # argsort by |invariant / crss|
-        ratios = SVector{4,Float64}(
+        ratios = SVector{4,T}(
             abs(slip_invariants[1] / crss[1]),
             abs(slip_invariants[2] / crss[2]),
             abs(slip_invariants[3] / crss[3]),
@@ -331,9 +331,9 @@ Returns (orientation_change::SMatrix{3,3}, strain_energy::Float64).
         slip_indices = _argsort4(ratios)
         slip_rates = _get_slip_rates_olivine(slip_invariants, slip_indices, crss, deformation_exponent)
     elseif phase == enstatite
-        slip_indices = _argsort4(SVector{4,Float64}(1/crss[1], 1/crss[2], 1/crss[3], 1/crss[4]))
-        slip_rates = SVector{4,Float64}(0.0, 0.0, 0.0,
-            abs(slip_invariants[4]) > 1e-15 ? 1.0 : 0.0)
+        slip_indices = _argsort4(SVector{4,T}(1/crss[1], 1/crss[2], 1/crss[3], 1/crss[4]))
+        slip_rates = SVector{4,T}(zero(T), zero(T), zero(T),
+            abs(slip_invariants[4]) > eps(T) ? one(T) : zero(T))
     else
         error("unsupported phase")
     end
@@ -349,7 +349,7 @@ Returns (orientation_change::SMatrix{3,3}, strain_energy::Float64).
 end
 
 """Allocation-free argsort for 4-element SVector. Returns 1-based indices sorted ascending."""
-@inline function _argsort4(v::SVector{4,Float64})::SVector{4,Int}
+@inline function _argsort4(v::SVector{4,T})::SVector{4,Int} where T<:AbstractFloat
     # Simple insertion sort for 4 elements
     idx = MVector{4,Int}(1, 2, 3, 4)
     @inbounds for i in 2:4
@@ -387,30 +387,37 @@ Compute derivatives of orientation and volume distribution (in-place, minimally 
 The inner grain-level computations are fully allocation-free using StaticArrays.
 """
 function derivatives!(
-    orientations_diff::AbstractArray{Float64,3},
-    fractions_diff::AbstractVector{Float64},
+    orientations_diff::AbstractArray{T,3},
+    fractions_diff::AbstractVector{T},
     regime::DeformationRegime,
     phase::MineralPhase,
     fabric::MineralFabric,
     n_grains::Int,
-    orientations::AbstractArray{Float64,3},
-    fractions::AbstractVector{Float64},
-    strain_rate::AbstractMatrix{Float64},
-    velocity_gradient::AbstractMatrix{Float64},
-    deformation_gradient_spin::AbstractMatrix{Float64},
-    stress_exponent::Float64,
-    deformation_exponent::Float64,
-    nucleation_efficiency::Float64,
-    gbm_mobility::Float64,
-    volume_fraction::Float64,
-)
+    orientations::AbstractArray{T,3},
+    fractions::AbstractVector{T},
+    strain_rate::AbstractMatrix{T},
+    velocity_gradient::AbstractMatrix{T},
+    deformation_gradient_spin::AbstractMatrix{T},
+    stress_exponent::Real,
+    deformation_exponent::Real,
+    nucleation_efficiency::Real,
+    gbm_mobility::Real,
+    volume_fraction::Real,
+) where T<:AbstractFloat
+    # Convert scalar parameters to T once
+    _n  = T(stress_exponent)
+    _p  = T(deformation_exponent)
+    _ν  = T(nucleation_efficiency)
+    _M  = T(gbm_mobility)
+    _vf = T(volume_fraction)
+
     if regime == min_viscosity || regime == max_viscosity
         # Zero derivatives: identity rotation, no volume change.
         @inbounds for g in 1:n_grains
             for i in 1:3, j in 1:3
-                orientations_diff[g,i,j] = (i == j) ? 1.0 : 0.0
+                orientations_diff[g,i,j] = (i == j) ? one(T) : zero(T)
             end
-            fractions_diff[g] = 0.0
+            fractions_diff[g] = zero(T)
         end
         return nothing
     elseif regime == matrix_diffusion
@@ -419,7 +426,7 @@ function derivatives!(
             for i in 1:3, j in 1:3
                 orientations_diff[g,i,j] = deformation_gradient_spin[i,j]
             end
-            fractions_diff[g] = 0.0
+            fractions_diff[g] = zero(T)
         end
         return nothing
     elseif regime == boundary_diffusion || regime == sliding_diffusion ||
@@ -428,31 +435,30 @@ function derivatives!(
     end
 
     # matrix_dislocation or frictional_yielding
-    sr = SMatrix{3,3,Float64,9}(
+    sr = SMatrix{3,3,T,9}(
         strain_rate[1,1], strain_rate[2,1], strain_rate[3,1],
         strain_rate[1,2], strain_rate[2,2], strain_rate[3,2],
         strain_rate[1,3], strain_rate[2,3], strain_rate[3,3]
     )
-    vg = SMatrix{3,3,Float64,9}(
+    vg = SMatrix{3,3,T,9}(
         velocity_gradient[1,1], velocity_gradient[2,1], velocity_gradient[3,1],
         velocity_gradient[1,2], velocity_gradient[2,2], velocity_gradient[3,2],
         velocity_gradient[1,3], velocity_gradient[2,3], velocity_gradient[3,3]
     )
 
-    smoothing = regime == frictional_yielding ? 0.3 : 1.0
+    smoothing = regime == frictional_yielding ? T(0.3) : one(T)
 
     # Per-grain loop (inner computation is allocation-free; each grain is independent)
-    strain_energies = Vector{Float64}(undef, n_grains)
+    strain_energies = Vector{T}(undef, n_grains)
     Threads.@threads for g in 1:n_grains
         @inbounds begin
-            ori = SMatrix{3,3,Float64,9}(
+            ori = SMatrix{3,3,T,9}(
                 orientations[g,1,1], orientations[g,2,1], orientations[g,3,1],
                 orientations[g,1,2], orientations[g,2,2], orientations[g,3,2],
                 orientations[g,1,3], orientations[g,2,3], orientations[g,3,3]
             )
             orientation_change, strain_energy = _get_rotation_and_strain(
-                phase, fabric, ori, sr, vg,
-                stress_exponent, deformation_exponent, nucleation_efficiency
+                phase, fabric, ori, sr, vg, _n, _p, _ν
             )
             oc = orientation_change * smoothing
             for i in 1:3, j in 1:3
@@ -463,7 +469,7 @@ function derivatives!(
     end
 
     # Volume-averaged mean strain energy
-    mean_energy = zero(Float64)
+    mean_energy = zero(T)
     @inbounds for g in 1:n_grains
         mean_energy += fractions[g] * strain_energies[g]
     end
@@ -471,7 +477,7 @@ function derivatives!(
     # Fraction derivatives
     @inbounds for g in 1:n_grains
         residual = smoothing * (mean_energy - strain_energies[g])
-        fractions_diff[g] = volume_fraction * gbm_mobility * fractions[g] * residual
+        fractions_diff[g] = _vf * _M * fractions[g] * residual
     end
     return nothing
 end
@@ -490,19 +496,19 @@ function derivatives(
     phase::MineralPhase,
     fabric::MineralFabric,
     n_grains::Int,
-    orientations::AbstractArray{Float64,3},
-    fractions::AbstractVector{Float64},
-    strain_rate::AbstractMatrix{Float64},
-    velocity_gradient::AbstractMatrix{Float64},
-    deformation_gradient_spin::AbstractMatrix{Float64},
-    stress_exponent::Float64,
-    deformation_exponent::Float64,
-    nucleation_efficiency::Float64,
-    gbm_mobility::Float64,
-    volume_fraction::Float64,
-)
-    orientations_diff = Array{Float64,3}(undef, n_grains, 3, 3)
-    fractions_diff = Vector{Float64}(undef, n_grains)
+    orientations::AbstractArray{T,3},
+    fractions::AbstractVector{T},
+    strain_rate::AbstractMatrix{T},
+    velocity_gradient::AbstractMatrix{T},
+    deformation_gradient_spin::AbstractMatrix{T},
+    stress_exponent::Real,
+    deformation_exponent::Real,
+    nucleation_efficiency::Real,
+    gbm_mobility::Real,
+    volume_fraction::Real,
+) where T<:AbstractFloat
+    orientations_diff = Array{T,3}(undef, n_grains, 3, 3)
+    fractions_diff = Vector{T}(undef, n_grains)
     derivatives!(orientations_diff, fractions_diff,
                  regime, phase, fabric, n_grains,
                  orientations, fractions,

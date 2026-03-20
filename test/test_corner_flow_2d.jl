@@ -12,13 +12,15 @@ using DRex: corner_2d, get_pathline, strain_increment, update_orientations!,
 # ─────────────────────────────────────────────────────────────────────────────
 function run_corner_olivine_a(
     params, seed, get_velocity, get_velocity_gradient,
-    min_coords, max_coords, max_strain, n_timesteps, final_location,
-)
+    min_coords, max_coords, max_strain, n_timesteps, final_location;
+    float_type::Type{T}=Float64,
+) where T<:AbstractFloat
     mineral = Mineral(
+        float_type=T,
         phase=olivine, fabric=olivine_A, regime=matrix_dislocation,
         n_grains=params[:number_of_grains], seed=seed,
     )
-    deformation_gradient = Matrix{Float64}(I, 3, 3)
+    deformation_gradient = Matrix{T}(I, 3, 3)
 
     timestamps, get_position = get_pathline(
         final_location, get_velocity, get_velocity_gradient,
@@ -61,11 +63,6 @@ end
     domain_height = 2.0e5
     domain_width  = 1.0e6
 
-    # Original paper values (commented out for fast testing):
-    # n_grains = 5000
-    # n_timesteps = 50
-    # z_fracs = (-0.1, -0.3, -0.54, -0.78)
-
     # Reduced values for fast testing:
     n_grains = 500
     n_timesteps = 20
@@ -80,60 +77,65 @@ end
     min_coords = [0.0, 0.0, -domain_height]
     max_coords = [domain_width, 0.0, 0.0]
 
-    for z_frac in z_fracs
-        final_location = [domain_width, 0.0, z_frac * domain_height]
+    for T in (Float64, Float32)
+        atol_frac = T == Float32 ? 1e-5 : 1e-10
 
-        @testset "z_exit=$(round(z_frac * domain_height / 1e3; digits=0)) km" begin
-            timestamps, positions, strains, mineral, deformation_gradient =
-                run_corner_olivine_a(
-                    params, seed, get_velocity, get_velocity_gradient,
-                    min_coords, max_coords, max_strain, n_timesteps, final_location,
+        for z_frac in z_fracs
+            final_location = [domain_width, 0.0, z_frac * domain_height]
+
+            @testset "z_exit=$(round(z_frac * domain_height / 1e3; digits=0)) km T=$T" begin
+                timestamps, positions, strains, mineral, deformation_gradient =
+                    run_corner_olivine_a(
+                        params, seed, get_velocity, get_velocity_gradient,
+                        min_coords, max_coords, max_strain, n_timesteps, final_location;
+                        float_type=T,
+                    )
+
+                n_steps = length(timestamps)
+
+                # Strains should be monotonically increasing.
+                @test issorted(strains)
+                @test strains[end] > 0
+
+                # Correct number of orientation/fraction snapshots.
+                @test length(mineral.orientations) == n_steps
+                @test length(mineral.fractions) == n_steps
+
+                # Grain fractions sum to 1 at every step.
+                for frac in mineral.fractions
+                    @test isapprox(sum(frac), 1.0; atol=atol_frac)
+                end
+
+                # Post-process: resample, compute M-index and Bingham angles.
+                orientations_resampled, _ = resample_orientations(
+                    mineral.orientations, mineral.fractions; seed=seed,
                 )
+                primary_axis = OLIVINE_PRIMARY_AXIS[mineral.fabric]
 
-            n_steps = length(timestamps)
+                m_indices = Float64[]
+                angles = Float64[]
+                for idx in 1:n_steps
+                    push!(m_indices, misorientation_index(
+                        orientations_resampled[idx], orthorhombic,
+                    ))
+                    dir_mean = bingham_average(
+                        orientations_resampled[idx]; axis=primary_axis,
+                    )
+                    push!(angles, smallest_angle(dir_mean, [1.0, 0.0, 0.0]))
+                end
 
-            # Strains should be monotonically increasing.
-            @test issorted(strains)
-            @test strains[end] > 0
+                # M-index in [0, 1].
+                @test all(0 .<= m_indices .<= 1)
+                # Texture should develop: final M-index > 0.
+                @test m_indices[end] > 0.01
 
-            # Correct number of orientation/fraction snapshots.
-            @test length(mineral.orientations) == n_steps
-            @test length(mineral.fractions) == n_steps
+                # Bingham angles in [0, 90].
+                @test all(0 .<= angles .<= 90)
 
-            # Grain fractions sum to 1 at every step.
-            for frac in mineral.fractions
-                @test isapprox(sum(frac), 1.0; atol=1e-10)
+                # Deformation gradient should remain a proper 3×3 matrix.
+                @test size(deformation_gradient) == (3, 3)
+                @test det(deformation_gradient) > 0
             end
-
-            # Post-process: resample, compute M-index and Bingham angles.
-            orientations_resampled, _ = resample_orientations(
-                mineral.orientations, mineral.fractions; seed=seed,
-            )
-            primary_axis = OLIVINE_PRIMARY_AXIS[mineral.fabric]
-
-            m_indices = Float64[]
-            angles = Float64[]
-            for idx in 1:n_steps
-                push!(m_indices, misorientation_index(
-                    orientations_resampled[idx], orthorhombic,
-                ))
-                dir_mean = bingham_average(
-                    orientations_resampled[idx]; axis=primary_axis,
-                )
-                push!(angles, smallest_angle(dir_mean, [1.0, 0.0, 0.0]))
-            end
-
-            # M-index in [0, 1].
-            @test all(0 .<= m_indices .<= 1)
-            # Texture should develop: final M-index > 0.
-            @test m_indices[end] > 0.01
-
-            # Bingham angles in [0, 90].
-            @test all(0 .<= angles .<= 90)
-
-            # Deformation gradient should remain a proper 3×3 matrix.
-            @test size(deformation_gradient) == (3, 3)
-            @test det(deformation_gradient) > 0
         end
     end
 end
