@@ -248,14 +248,17 @@ Calculate the rotation rate for a grain. Allocation-free.
     deformation_rate::SMatrix{3,3,T,9},
     slip_rate_softest::T
 )::SMatrix{3,3,T,9} where T<:AbstractFloat
-    # Spin vector
-    spin = MVector{3,T}(undef)
-    @inbounds for j in 1:3
-        r = mod1(j + 1, 3)
-        s = mod1(j + 2, 3)
-        spin[j] = ((velocity_gradient[s,r] - velocity_gradient[r,s]) -
-                    (deformation_rate[s,r] - deformation_rate[r,s]) * slip_rate_softest) / 2
-    end
+    # Spin vector — computed explicitly as SVector (no MVector = no heap alloc on GPU).
+    # j=1: r=2, s=3 | j=2: r=3, s=1 | j=3: r=1, s=2
+    half = T(0.5)
+    spin = SVector{3,T}(
+        ((velocity_gradient[3,2] - velocity_gradient[2,3]) -
+         (deformation_rate[3,2]  - deformation_rate[2,3])  * slip_rate_softest) * half,
+        ((velocity_gradient[1,3] - velocity_gradient[3,1]) -
+         (deformation_rate[1,3]  - deformation_rate[3,1])  * slip_rate_softest) * half,
+        ((velocity_gradient[2,1] - velocity_gradient[1,2]) -
+         (deformation_rate[2,1]  - deformation_rate[1,2])  * slip_rate_softest) * half,
+    )
 
     # orientation_change[p,q] = Σ_rs ε[q,r,s] * orientation[p,s] * spin[r]
     return SMatrix{3,3,T,9}(ntuple(Val(9)) do idx
@@ -347,19 +350,18 @@ end
 
 """Allocation-free argsort for 4-element SVector. Returns 1-based Int32 indices sorted ascending."""
 @inline function _argsort4(v::SVector{4,T})::SVector{4,Int32} where T<:AbstractFloat
-    # Simple insertion sort for 4 elements (Int32 for GPU compatibility)
-    idx = MVector{4,Int32}(Int32(1), Int32(2), Int32(3), Int32(4))
-    @inbounds for i in 2:4
-        key = v[idx[i]]
-        ki  = idx[i]
-        j   = i - 1
-        while j >= 1 && v[idx[j]] > key
-            idx[j+1] = idx[j]
-            j -= 1
-        end
-        idx[j+1] = ki
-    end
-    return SVector(idx)
+    # Fully unrolled insertion sort — no MVector, no heap allocation (GPU-safe).
+    i1, i2, i3, i4 = Int32(1), Int32(2), Int32(3), Int32(4)
+    # insert position 2
+    if v[i1] > v[i2]; i1, i2 = i2, i1; end
+    # insert position 3
+    if v[i2] > v[i3]; i2, i3 = i3, i2; end
+    if v[i1] > v[i2]; i1, i2 = i2, i1; end
+    # insert position 4
+    if v[i3] > v[i4]; i3, i4 = i4, i3; end
+    if v[i2] > v[i3]; i2, i3 = i3, i2; end
+    if v[i1] > v[i2]; i1, i2 = i2, i1; end
+    return SVector{4,Int32}(i1, i2, i3, i4)
 end
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -395,8 +397,10 @@ done on CPU after synchronisation.
                             vg_vec[4], vg_vec[5], vg_vec[6],
                             vg_vec[7], vg_vec[8], vg_vec[9])
 
-    phase  = MineralPhase(phase_int)
-    fabric = MineralFabric(fabric_int)
+    # reinterpret bypasses the bounds-check in the @enum constructor (which calls
+    # string() internally and is not GPU-safe).  The caller guarantees valid values.
+    phase  = reinterpret(MineralPhase,  phase_int)
+    fabric = reinterpret(MineralFabric, fabric_int)
 
     @inbounds ori = SMatrix{3,3,T,9}(
         orientations[g,1,1], orientations[g,2,1], orientations[g,3,1],

@@ -199,6 +199,13 @@ function update_orientations!(
         fractions_prev,
     ))
 
+    # Pre-allocate buffers once and reuse across every ODE step.
+    # On CPU backend these are plain Arrays (no overhead); on GPU they are
+    # device arrays so the kernel can operate on them directly.
+    ori_device      = KernelAbstractions.allocate(backend, T, (n_grains, 3, 3))
+    ori_diff_device = KernelAbstractions.allocate(backend, T, (n_grains, 3, 3))
+    frac_diff_buf   = Vector{T}(undef, n_grains)
+
     function rhs!(dy, y, _, t)
         position = get_position(t)
         vel_grad = T.(get_velocity_gradient(t, position))
@@ -214,12 +221,12 @@ function update_orientations!(
         F_diff = vel_grad * F
         _, V = polar_decompose(F_diff)
 
-        ori_diff = Array{T,3}(undef, n_grains, 3, 3)
-        frac_diff = Vector{T}(undef, n_grains)
+        # Upload orientations to the device (no-op memcopy on CPU backend).
+        copyto!(ori_device, ori)
 
-        derivatives!(ori_diff, frac_diff,
+        derivatives!(ori_diff_device, frac_diff_buf,
                      mineral.regime, mineral.phase, mineral.fabric, n_grains,
-                     ori, frac,
+                     ori_device, frac,
                      sr ./ sr_max, vel_grad ./ sr_max, V,
                      params[:stress_exponent],
                      params[:deformation_exponent],
@@ -229,8 +236,9 @@ function update_orientations!(
                      backend = backend)
 
         dy[1:9] .= vec(F_diff)
-        dy[10:n_grains*9+9] .= vec(ori_diff) .* sr_max
-        dy[n_grains*9+10:n_grains*10+9] .= frac_diff .* sr_max
+        # Download orientation derivatives back to CPU (no-op on CPU backend).
+        dy[10:n_grains*9+9] .= vec(Array(ori_diff_device)) .* sr_max
+        dy[n_grains*9+10:n_grains*10+9] .= frac_diff_buf .* sr_max
     end
 
     # Callback to apply GBS after each step

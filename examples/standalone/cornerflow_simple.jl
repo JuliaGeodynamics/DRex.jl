@@ -14,10 +14,26 @@
 #
 # '-t auto' enables multi-threading: pathlines run in parallel across cores,
 # and the per-grain D-Rex loop is also threaded within each pathline.
+#
+# Pass '--metal' to offload the per-grain kernel to the Metal GPU (Apple Silicon).
+# Metal requires Float32, so only the Float32 run is executed in that mode.
+#   julia --project=. cornerflow_simple.jl --metal
 
 using LinearAlgebra
 using DRex
 using GLMakie
+using KernelAbstractions
+
+# ── Backend selection ─────────────────────────────────────────────────────────
+
+const USE_METAL = "--metal" in ARGS
+#const USE_METAL = true
+if USE_METAL
+    using Metal
+    get_backend() = Metal.MetalBackend()
+else
+    get_backend() = CPU()
+end
 
 # ── Simulation parameters ────────────────────────────────────────────────────
 
@@ -31,6 +47,11 @@ const MAX_STRAIN      = 10.0
 const GBM_MOBILITIES  = (10, 125)                     # M* values for the two columns
 const OUT_FIGURE_F64  = "cornerflow2d_simple_example.png"
 const OUT_FIGURE_F32  = "cornerflow2d_simple_example_float32.png"
+
+# Runs to execute: Metal forces Float32-only; CPU runs both precisions.
+const RUNS = USE_METAL ?
+    ((Float32, "cornerflow2d_simple_example_metal.png"),) :
+    ((Float64, OUT_FIGURE_F64), (Float32, OUT_FIGURE_F32))
 
 const MIN_COORDS = [0.0, 0.0, -DOMAIN_HEIGHT]
 const MAX_COORDS = [DOMAIN_WIDTH, 0.0, 0.0]
@@ -47,7 +68,8 @@ final_locations = [
 
 function run_pathline(params, f_velocity, f_velocity_grad,
                       min_coords, max_coords, final_location;
-                      float_type::Type{T}=Float64) where T<:AbstractFloat
+                      float_type::Type{T}=Float64,
+                      backend::KernelAbstractions.Backend=CPU()) where T<:AbstractFloat
     olA = Mineral(
         float_type = T,
         phase   = olivine,
@@ -86,7 +108,8 @@ function run_pathline(params, f_velocity, f_velocity_grad,
         deformation_gradient = update_all!(
             [olA, ens], params, deformation_gradient,
             f_velocity_grad,
-            (timestamps[i-1], timestamps[i], f_position),
+            (timestamps[i-1], timestamps[i], f_position);
+            backend = backend,
         )
     end
     return timestamps, positions, strains, olA, ens
@@ -111,7 +134,8 @@ end
 
 # ── Run all pathlines for both M* values ──────────────────────────────────────
 
-function run_all_cases(float_type::Type{T}) where T<:AbstractFloat
+function run_all_cases(float_type::Type{T};
+                       backend::KernelAbstractions.Backend=CPU()) where T<:AbstractFloat
     cases = Dict{Int, Dict{Symbol, Vector}}()
     for (mi, Mstar) in enumerate(GBM_MOBILITIES)
         params = default_params()
@@ -127,7 +151,7 @@ function run_all_cases(float_type::Type{T}) where T<:AbstractFloat
             println("[$T] M*=$Mstar  Pathline $i / $n_paths  (thread $(Threads.threadid()))")
             _, positions, strains, olA, _ = run_pathline(
                 params, f_velocity, f_velocity_grad, MIN_COORDS, MAX_COORDS, final_locations[i];
-                float_type=T,
+                float_type=T, backend=backend,
             )
             path_results[i] = (positions, strains, compute_diagnostics(olA)...)
         end
@@ -257,11 +281,11 @@ end
 
 # ── Run and plot for Float64 and Float32 ─────────────────────────────────────
 
-println("Running on $(Threads.nthreads()) thread(s)")
+println("Running on $(Threads.nthreads()) thread(s)$(USE_METAL ? " (Metal GPU)" : "")")
 
-for (float_type, out_figure) in ((Float64, OUT_FIGURE_F64), (Float32, OUT_FIGURE_F32))
-    println("\n=== Float type: $float_type ===")
-    t_total = @elapsed cases = run_all_cases(float_type)
+for (float_type, out_figure) in RUNS
+    println("\n=== Float type: $float_type, backend: $(get_backend()) ===")
+    t_total = @elapsed cases = run_all_cases(float_type; backend=get_backend())
     println("Total computation time: $(round(t_total; digits=1)) s")
 
     # ── Plotting with GLMakie (4-panel layout matching Fig. 10) ────────────────
