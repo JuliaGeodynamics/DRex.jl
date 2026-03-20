@@ -441,23 +441,25 @@ function derivatives!(
 
     smoothing = regime == frictional_yielding ? 0.3 : 1.0
 
-    # Per-grain loop (inner computation is allocation-free)
+    # Per-grain loop (inner computation is allocation-free; each grain is independent)
     strain_energies = Vector{Float64}(undef, n_grains)
-    @inbounds for g in 1:n_grains
-        ori = SMatrix{3,3,Float64,9}(
-            orientations[g,1,1], orientations[g,2,1], orientations[g,3,1],
-            orientations[g,1,2], orientations[g,2,2], orientations[g,3,2],
-            orientations[g,1,3], orientations[g,2,3], orientations[g,3,3]
-        )
-        orientation_change, strain_energy = _get_rotation_and_strain(
-            phase, fabric, ori, sr, vg,
-            stress_exponent, deformation_exponent, nucleation_efficiency
-        )
-        oc = orientation_change * smoothing
-        for i in 1:3, j in 1:3
-            orientations_diff[g,i,j] = oc[i,j]
+    Threads.@threads for g in 1:n_grains
+        @inbounds begin
+            ori = SMatrix{3,3,Float64,9}(
+                orientations[g,1,1], orientations[g,2,1], orientations[g,3,1],
+                orientations[g,1,2], orientations[g,2,2], orientations[g,3,2],
+                orientations[g,1,3], orientations[g,2,3], orientations[g,3,3]
+            )
+            orientation_change, strain_energy = _get_rotation_and_strain(
+                phase, fabric, ori, sr, vg,
+                stress_exponent, deformation_exponent, nucleation_efficiency
+            )
+            oc = orientation_change * smoothing
+            for i in 1:3, j in 1:3
+                orientations_diff[g,i,j] = oc[i,j]
+            end
+            strain_energies[g] = strain_energy
         end
-        strain_energies[g] = strain_energy
     end
 
     # Volume-averaged mean strain energy

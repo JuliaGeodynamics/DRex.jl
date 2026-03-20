@@ -10,7 +10,10 @@
 #   (d) M*=125 – same
 #
 # Uses GLMakie for plotting.  Run from the examples/standalone directory:
-#   julia --project=. cornerflow_simple.jl
+#   julia --project=. -t auto cornerflow_simple.jl
+#
+# '-t auto' enables multi-threading: pathlines run in parallel across cores,
+# and the per-grain D-Rex loop is also threaded within each pathline.
 
 using LinearAlgebra
 using DRex
@@ -106,12 +109,25 @@ end
 
 cases = Dict{Int, Dict{Symbol, Vector}}()
 
-for (mi, Mstar) in enumerate(GBM_MOBILITIES)
+println("Running on $(Threads.nthreads()) thread(s)")
+
+t_total = @elapsed for (mi, Mstar) in enumerate(GBM_MOBILITIES)
     params = default_params()
     params[:phase_assemblage] = [olivine, enstatite]
     params[:phase_fractions]  = [0.7, 0.3]
     params[:gbm_mobility]     = Float64(Mstar)
     params[:number_of_grains] = 5000
+
+    n_paths = length(final_locations)
+    path_results = Vector{Any}(undef, n_paths)
+
+    Threads.@threads for i in eachindex(final_locations)
+        println("M*=$Mstar  Pathline $i / $n_paths  (thread $(Threads.threadid()))")
+        _, positions, strains, olA, _ = run_pathline(
+            params, f_velocity, f_velocity_grad, MIN_COORDS, MAX_COORDS, final_locations[i],
+        )
+        path_results[i] = (positions, strains, compute_diagnostics(olA)...)
+    end
 
     case = Dict{Symbol,Vector}(
         :strains    => Vector{Vector{Float64}}(),
@@ -119,13 +135,8 @@ for (mi, Mstar) in enumerate(GBM_MOBILITIES)
         :m_indices  => Vector{Vector{Float64}}(),
         :directions => Vector{Matrix{Float64}}(),
     )
-
-    for (i, final_loc) in enumerate(final_locations)
-        println("M*=$Mstar  Pathline $i / $(length(final_locations))")
-        _, positions, strains, olA, _ = run_pathline(
-            params, f_velocity, f_velocity_grad, MIN_COORDS, MAX_COORDS, final_loc,
-        )
-        m_indices, directions = compute_diagnostics(olA)
+    for i in 1:n_paths
+        positions, strains, m_indices, directions = path_results[i]
         push!(case[:strains], strains)
         push!(case[:positions], positions)
         push!(case[:m_indices], m_indices)
@@ -133,6 +144,8 @@ for (mi, Mstar) in enumerate(GBM_MOBILITIES)
     end
     cases[mi] = case
 end
+
+println("\nTotal computation time: $(round(t_total; digits=1)) s")
 
 # ── Plotting with GLMakie (4-panel layout matching Fig. 10) ──────────────────
 
