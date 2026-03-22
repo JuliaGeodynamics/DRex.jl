@@ -424,6 +424,78 @@ done on CPU after synchronisation.
     @inbounds strain_energies[g] = s_energy
 end
 
+# ── Batch GPU kernel: all tracers × all grains in one launch ─────────────────
+
+"""
+Per-(tracer, grain) KernelAbstractions kernel.  One work item = one (tracer, grain) pair.
+
+Memory layout uses `(n_grains, n_tracers, …)` so that adjacent work-items (grains
+within the same tracer) access adjacent memory → coalesced reads on GPU.
+
+The fraction update (GBM) requires a per-tracer global reduction and is done on
+CPU after kernel synchronisation (Pass 2), same as for `_grain_kernel!`.
+"""
+@kernel function _batch_grain_kernel!(
+    orientations_diff,          # (n_grains, n_tracers, 3, 3) — output
+    strain_energies,            # (n_grains, n_tracers) — output
+    @Const(orientations),       # (n_grains, n_tracers, 3, 3) — read-only
+    @Const(vg_device),          # (9, n_tracers) — normalised velocity gradients
+    @Const(sr_device),          # (9, n_tracers) — normalised strain rates
+    phase_int::Int32,
+    fabric_int::Int32,
+    smoothing,
+    stress_exponent,
+    deformation_exponent,
+    nucleation_efficiency,
+)
+    T   = eltype(orientations_diff)
+    idx = @index(Global, Linear)
+    n_g = Int32(size(orientations, 1))
+
+    # Map linear 1-based index → (grain, tracer)
+    g  = (idx - Int32(1)) % n_g + Int32(1)
+    ti = (idx - Int32(1)) ÷ n_g + Int32(1)
+
+    # Load normalised velocity gradient and strain rate for this tracer.
+    # vg_device is stored column-major flattened: [1..3] = col 1, [4..6] = col 2, [7..9] = col 3.
+    vg = SMatrix{3,3,T,9}(
+        vg_device[1,ti], vg_device[2,ti], vg_device[3,ti],
+        vg_device[4,ti], vg_device[5,ti], vg_device[6,ti],
+        vg_device[7,ti], vg_device[8,ti], vg_device[9,ti],
+    )
+    sr = SMatrix{3,3,T,9}(
+        sr_device[1,ti], sr_device[2,ti], sr_device[3,ti],
+        sr_device[4,ti], sr_device[5,ti], sr_device[6,ti],
+        sr_device[7,ti], sr_device[8,ti], sr_device[9,ti],
+    )
+
+    # reinterpret avoids GPU-unsafe @enum constructor (see _grain_kernel! comment).
+    phase  = reinterpret(MineralPhase,  phase_int)
+    fabric = reinterpret(MineralFabric, fabric_int)
+
+    # orientations[g, ti, i, j] where i=row, j=col; construct SMatrix column-by-column.
+    @inbounds ori = SMatrix{3,3,T,9}(
+        orientations[g,ti,1,1], orientations[g,ti,2,1], orientations[g,ti,3,1],
+        orientations[g,ti,1,2], orientations[g,ti,2,2], orientations[g,ti,3,2],
+        orientations[g,ti,1,3], orientations[g,ti,2,3], orientations[g,ti,3,3],
+    )
+
+    _n = T(stress_exponent)
+    _p = T(deformation_exponent)
+    _ν = T(nucleation_efficiency)
+    _s = T(smoothing)
+
+    orientation_change, s_energy = _get_rotation_and_strain(
+        phase, fabric, ori, sr, vg, _n, _p, _ν,
+    )
+
+    oc = orientation_change * _s
+    @inbounds for i in 1:3, j in 1:3
+        orientations_diff[g,ti,i,j] = oc[i,j]
+    end
+    @inbounds strain_energies[g,ti] = s_energy
+end
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Main derivatives function
 # ──────────────────────────────────────────────────────────────────────────────

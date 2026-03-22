@@ -25,9 +25,15 @@ using GLMakie
 using KernelAbstractions
 
 # ── Backend selection ─────────────────────────────────────────────────────────
+#
+# '--metal'  offloads the per-grain kernel to the Metal GPU (Apple Silicon).
+# '--batch'  uses the batch integrator (run_pathlines_batch!) regardless of backend.
+#            Metal automatically implies batch mode (single kernel call per step
+#            over all tracers is much more efficient than one launch per tracer).
 
 const USE_METAL = "--metal" in ARGS
-#const USE_METAL = true
+const USE_BATCH = "--batch" in ARGS || USE_METAL
+
 if USE_METAL
     using Metal
     get_backend() = Metal.MetalBackend()
@@ -40,17 +46,19 @@ end
 const PLATE_SPEED     = 2.0 / (100 * 365 * 86400)   # 2 cm/yr → m/s
 const DOMAIN_HEIGHT   = 2e5                           # 200 km (olivine-spinel transition)
 const DOMAIN_WIDTH    = 1e6                           # 1000 km
-const N_TIMESTEPS     = 50
+const N_TIMESTEPS       = 50    # ODE path (adaptive Tsit5 sub-steps internally)
+const N_TIMESTEPS_BATCH = 50    # batch path (Tsit5 handles accuracy per interval)
 const PATHLINE_ENDS   = (-0.1, -0.3, -0.54, -0.78)   # fraction of domain height
 const DOMAIN_COORDS   = ("X", "Z")
 const MAX_STRAIN      = 10.0
 const GBM_MOBILITIES  = (10, 125)                     # M* values for the two columns
-const OUT_FIGURE_F64  = "cornerflow2d_simple_example.png"
-const OUT_FIGURE_F32  = "cornerflow2d_simple_example_float32.png"
+const _SUFFIX = USE_BATCH ? "_batch" : ""
+const OUT_FIGURE_F64  = "cornerflow2d_simple_example$(_SUFFIX).png"
+const OUT_FIGURE_F32  = "cornerflow2d_simple_example_float32$(_SUFFIX).png"
 
 # Runs to execute: Metal forces Float32-only; CPU runs both precisions.
 const RUNS = USE_METAL ?
-    ((Float32, "cornerflow2d_simple_example_metal.png"),) :
+    ((Float32, "cornerflow2d_simple_example_metal$(_SUFFIX).png"),) :
     ((Float64, OUT_FIGURE_F64), (Float32, OUT_FIGURE_F32))
 
 const MIN_COORDS = [0.0, 0.0, -DOMAIN_HEIGHT]
@@ -174,6 +182,79 @@ function run_all_cases(float_type::Type{T};
     return cases
 end
 
+# ── Batch GPU variant: all pathlines processed in one kernel call per step ─────
+#
+# Pre-computes pathlines and VGs on CPU, then calls run_pathlines_batch! which
+# issues a single _batch_grain_kernel! call per outer step covering
+# n_paths × n_grains work items simultaneously.
+#
+# Uses forward-Euler integration (vs. adaptive Tsit5 in run_all_cases), so
+# results are slightly less accurate but computation is much faster for many
+# tracers.  The difference is negligible at N_TIMESTEPS=50 for the M-index plot.
+
+function run_all_cases_batch(float_type::Type{T};
+                              backend::KernelAbstractions.Backend=CPU()) where T<:AbstractFloat
+    cases = Dict{Int, Dict{Symbol, Vector}}()
+    for (mi, Mstar) in enumerate(GBM_MOBILITIES)
+        params = default_params()
+        params[:phase_assemblage] = [olivine, enstatite]
+        params[:phase_fractions]  = [0.7, 0.3]
+        params[:gbm_mobility]     = Float64(Mstar)
+        params[:number_of_grains] = 5000
+
+        n_paths = length(final_locations)
+
+        # ── Pre-compute pathlines (CPU, one per tracer) ──────────────────────
+        pathlines_raw = Vector{Any}(undef, n_paths)
+        Threads.@threads for i in eachindex(final_locations)
+            timestamps, f_pos = get_pathline(
+                final_locations[i], f_velocity, f_velocity_grad,
+                MIN_COORDS, MAX_COORDS;
+                max_strain = MAX_STRAIN,
+                regular_steps = N_TIMESTEPS_BATCH,
+            )
+            positions          = [collect(f_pos(t)) for t in timestamps]
+            velocity_gradients = [f_velocity_grad(NaN, x) for x in positions]
+            pathlines_raw[i]   = (timestamps, positions, velocity_gradients)
+        end
+
+        # ── Build per-tracer Mineral sets ────────────────────────────────────
+        minerals_per_tracer = Vector{Vector{Mineral{T}}}(undef, n_paths)
+        for i in 1:n_paths
+            minerals_per_tracer[i] = [
+                Mineral(float_type=T, phase=olivine,   fabric=olivine_A,   regime=matrix_dislocation, n_grains=params[:number_of_grains]),
+                Mineral(float_type=T, phase=enstatite, fabric=enstatite_AB, regime=matrix_dislocation, n_grains=params[:number_of_grains]),
+            ]
+        end
+
+        println("[$T batch] M*=$Mstar — running $(n_paths) tracers × $(params[:number_of_grains]) grains on $(backend)")
+        batch_strains = run_pathlines_batch!(
+            minerals_per_tracer, params, pathlines_raw;
+            backend = backend,
+            snapshot_stride = N_TIMESTEPS_BATCH ÷ N_TIMESTEPS,
+        )
+
+        # ── Collect results in the same format as run_all_cases ─────────────
+        case = Dict{Symbol,Vector}(
+            :strains    => Vector{Vector{Float64}}(),
+            :positions  => Vector{Vector{Vector{Float64}}}(),
+            :m_indices  => Vector{Vector{Float64}}(),
+            :directions => Vector{Matrix{Float64}}(),
+        )
+        stride = N_TIMESTEPS_BATCH ÷ N_TIMESTEPS
+        for i in 1:n_paths
+            olA = minerals_per_tracer[i][1]
+            m_indices, directions = compute_diagnostics(olA)
+            push!(case[:strains],    batch_strains[i])
+            push!(case[:positions],  pathlines_raw[i][2][1:stride:end])
+            push!(case[:m_indices],  m_indices)
+            push!(case[:directions], directions)
+        end
+        cases[mi] = case
+    end
+    return cases
+end
+
 const markers_list = [:rect, :circle, :utriangle, :star5]
 const pathline_labels = [
     "zf = $(round(z * DOMAIN_HEIGHT / 1e3; digits=0)) km"
@@ -206,11 +287,11 @@ function draw_domain_panel!(fig_pos, panel_label, case, strain_min, strain_max, 
     speed[speed .== 0] .= NaN
     ux_norm = ux ./ speed
     uz_norm = uz ./ speed
-    arrows2d!(ax,
+    arrows!(ax,
         vec(collect(xs) * ones(nz)') ./ 1e3,
         vec(ones(nx) * collect(zs)') ./ 1e3,
         vec(ux_norm), vec(uz_norm);
-        tipwidth = 8, tiplength = 12,
+        arrowsize = 8, lengthscale = 12,
         color = (:black, 0.5))
 
     for i in eachindex(final_locations)
@@ -281,11 +362,13 @@ end
 
 # ── Run and plot for Float64 and Float32 ─────────────────────────────────────
 
-println("Running on $(Threads.nthreads()) thread(s)$(USE_METAL ? " (Metal GPU)" : "")")
+println("Running on $(Threads.nthreads()) thread(s)$(USE_METAL ? " (Metal GPU)" : "")$(USE_BATCH ? " [batch mode]" : "")")
 
 for (float_type, out_figure) in RUNS
     println("\n=== Float type: $float_type, backend: $(get_backend()) ===")
-    t_total = @elapsed cases = run_all_cases(float_type; backend=get_backend())
+    t_total = @elapsed cases = USE_BATCH ?
+        run_all_cases_batch(float_type; backend=get_backend()) :
+        run_all_cases(float_type; backend=get_backend())
     println("Total computation time: $(round(t_total; digits=1)) s")
 
     # ── Plotting with GLMakie (4-panel layout matching Fig. 10) ────────────────
