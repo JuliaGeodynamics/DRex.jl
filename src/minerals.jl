@@ -450,6 +450,10 @@ function run_pathlines_batch!(
         ori_diff   = Array{T,4}(undef, n_grains, n_tracers, 3, 3)
         se_cpu     = Array{T,2}(undef, n_grains, n_tracers)
         se_k1      = Array{T,2}(undef, n_grains, n_tracers)
+        se_k2      = Array{T,2}(undef, n_grains, n_tracers)
+        se_k3      = Array{T,2}(undef, n_grains, n_tracers)
+        se_k4      = Array{T,2}(undef, n_grains, n_tracers)
+        se_avg     = Array{T,2}(undef, n_grains, n_tracers)
         vg_cpu     = Array{T,2}(undef, 9, n_tracers)
         sr_cpu     = Array{T,2}(undef, 9, n_tracers)
         sr_max_arr = Vector{T}(undef, n_tracers)
@@ -597,6 +601,7 @@ function run_pathlines_batch!(
                     eval_batch!(k2_ori, k2_frac, ori_tmp, fracs_cpu, αm,
                                 phase_int, fabric_int, smoothing,
                                 vol_frac, gbm_M, s_exp, d_exp, n_eff)
+                    se_k2 .= se_cpu
 
                     # k3 = f(ori + h/2·k2, αm)
                     @inbounds for ti in 1:n_tracers, i in 1:3, j in 1:3, g in 1:n_grains
@@ -605,6 +610,7 @@ function run_pathlines_batch!(
                     eval_batch!(k3_ori, k3_frac, ori_tmp, fracs_cpu, αm,
                                 phase_int, fabric_int, smoothing,
                                 vol_frac, gbm_M, s_exp, d_exp, n_eff)
+                    se_k3 .= se_cpu
 
                     # k4 = f(ori + h·k3, α1)
                     @inbounds for ti in 1:n_tracers, i in 1:3, j in 1:3, g in 1:n_grains
@@ -613,6 +619,7 @@ function run_pathlines_batch!(
                     eval_batch!(k4_ori, k4_frac, ori_tmp, fracs_cpu, α1,
                                 phase_int, fabric_int, smoothing,
                                 vol_frac, gbm_M, s_exp, d_exp, n_eff)
+                    se_k4 .= se_cpu
 
                     # ── Orientation RK4 update ────────────────────────────────────
                     @inbounds for ti in 1:n_tracers, i in 1:3, j in 1:3, g in 1:n_grains
@@ -624,19 +631,26 @@ function run_pathlines_batch!(
                     # ── Exponential fraction integrator with adaptive sub-stepping ─
                     # The fraction ODE dfrac/dt = M·vf·s·frac·(mean_E - E_g)·sr has
                     # exact solution frac(t+h) ∝ frac(t)·exp(α_g·h).
-                    # With the eps clamp removed, sr_max ≈ actual strain rate (~1e-14)
-                    # and α·h_sub is O(M/10), not 8000.  We split the fraction step
-                    # into n_frac_sub pieces so each piece has max|α_g·h_frac| ≤ 2.79.
-                    # n_frac_sub ∝ M*, so M* dependence is naturally preserved.
+                    #
+                    # Use RK4-weighted average of SE across k1..k4 to account for
+                    # orientation evolution during the sub-step (reduces operator-
+                    # splitting error vs using SE frozen at k1 alone).
+                    @inbounds for ti in 1:n_tracers
+                        for g in 1:n_grains
+                            se_avg[g,ti] = (se_k1[g,ti] + 2*se_k2[g,ti] +
+                                            2*se_k3[g,ti] + se_k4[g,ti]) / 6
+                        end
+                    end
+
                     α_frac_max = zero(T)
                     @inbounds for ti in 1:n_tracers
                         sr = sr_max_k1[ti]
                         mean_E = zero(T)
                         for g in 1:n_grains
-                            mean_E += fracs_cpu[g,ti] * se_k1[g,ti]
+                            mean_E += fracs_cpu[g,ti] * se_avg[g,ti]
                         end
                         for g in 1:n_grains
-                            ag = abs(vol_frac * gbm_M * smoothing * (mean_E - se_k1[g,ti]) * sr)
+                            ag = abs(vol_frac * gbm_M * smoothing * (mean_E - se_avg[g,ti]) * sr)
                             α_frac_max = max(α_frac_max, ag)
                         end
                     end
@@ -648,12 +662,12 @@ function run_pathlines_batch!(
                             sr = sr_max_k1[ti]
                             mean_E = zero(T)
                             for g in 1:n_grains
-                                mean_E += fracs_cpu[g,ti] * se_k1[g,ti]
+                                mean_E += fracs_cpu[g,ti] * se_avg[g,ti]
                             end
                             # Log-space update, shift by max to avoid Float32 overflow
                             max_log_w = T(-Inf32)
                             for g in 1:n_grains
-                                α_g = vol_frac * gbm_M * smoothing * (mean_E - se_k1[g,ti]) * sr
+                                α_g = vol_frac * gbm_M * smoothing * (mean_E - se_avg[g,ti]) * sr
                                 lw = log(max(fracs_cpu[g,ti], eps(T))) + α_g * h_frac
                                 fracs_tmp[g,ti] = lw
                                 max_log_w = max(max_log_w, lw)

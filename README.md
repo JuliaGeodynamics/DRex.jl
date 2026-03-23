@@ -6,6 +6,23 @@
 A Julia translation of the [PyDRex](https://github.com/seismic-anisotropy/PyDRex) package for simulating crystallographic preferred orientation (CPO) evolution in polycrystals (as described in [Bilton et al. (2025)](https://academic.oup.com/gji/article/241/1/35/7965963)), which is again based on the DRex package developed by Kaminsky & Ribe (2001,2004).
 Since Julia is a compiled language this runs much faster than the python version (>3 orders of magnitude, if numbers mentioned in the python test suite are representative).
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Module Structure](#module-structure)
+- [Allocation-Free Design](#allocation-free-design)
+- [Multithreading and GPU Support](#multithreading-and-gpu-support)
+- [Supported Phases and Fabrics](#supported-phases-and-fabrics)
+- [Key Types](#key-types)
+- [Running Tests](#running-tests)
+- [Citing](#citing)
+- [References](#references)
+- [LaMEM Integration](#lamem-integration)
+- [Example: Corner Flow CPO](#example-corner-flow-cpo)
+- [Example: LaMEM 3D Subduction with CPO](#example-lamem-3d-subduction-with-cpo)
+
 ## Overview
 
 DRex.jl implements the D-Rex model (Kaminski & Ribe, 2001; 2004) for computing the evolution of crystal orientations and grain size distributions during plastic deformation. The key routines are designed to be **allocation-free** using `StaticArrays.jl`, making the inner-loop grain-level computations highly efficient.
@@ -114,6 +131,51 @@ The inner-loop grain-level computations use `SMatrix` and `SVector` from `Static
 
 All these functions are marked `@inline` and operate exclusively on static-sized types, ensuring zero heap allocations per grain per timestep.
 
+## Multithreading and GPU Support
+
+> **Work in progress** — GPU acceleration uses a different time integration scheme (operator-split RK4 + exponential integrator) than the default adaptive Tsit5. Results should be close but will not be bit-for-bit identical to the sequential CPU path. Always cross-check GPU results against the CPU reference before production use.
+
+DRex.jl supports two parallelisation strategies that can be combined:
+
+### Multi-core CPU (Threads.@threads)
+
+Launch Julia with multiple threads to parallelise across tracers:
+
+```bash
+julia --project=. -t auto cornerflow_simple.jl
+```
+
+Each tracer (pathline) runs on its own thread. The per-grain inner loop is already allocation-free, so scaling is nearly linear with core count.
+
+### GPU acceleration via KernelAbstractions.jl
+
+The per-grain orientation-update kernel (`_batch_grain_kernel!`) is written using [KernelAbstractions.jl](https://github.com/JuliaGPU/KernelAbstractions.jl), which allows it to run on any supported backend — CPU, CUDA, ROCm, or Metal — without changing the source code.
+
+Pass a `backend` keyword to `update_all!` or use `run_pathlines_batch!` with a non-CPU backend:
+
+```julia
+using Metal          # Apple Silicon GPU
+backend = Metal.MetalBackend()
+
+# Single pathline
+deformation_gradient = update_all!(minerals, params, F, get_vg, pathline; backend=backend)
+
+# Batch (all tracers in one kernel launch per step — more efficient on GPU)
+run_pathlines_batch!(minerals_per_tracer, params, pathlines_data; backend=backend)
+```
+
+The batch path (`run_pathlines_batch!` with a GPU backend) launches a single kernel over all grains × all tracers per timestep, which amortises GPU launch overhead. This is the recommended mode for Apple Silicon (Metal) or CUDA hardware when running many tracers with large grain counts.
+
+#### Integration scheme differences
+
+| Path | Orientation integrator | Fraction integrator |
+|---|---|---|
+| CPU sequential (`update_orientations!`) | Adaptive Tsit5 (coupled) | Tsit5 (coupled) |
+| CPU batch (`run_pathlines_batch!`, `CPU()`) | Adaptive Tsit5 (coupled) | Tsit5 (coupled) |
+| GPU batch (`run_pathlines_batch!`, non-CPU) | Fixed-step RK4 | Exponential integrator (operator-split) |
+
+The GPU path uses a fixed-step RK4 for orientations and an operator-split exponential integrator for grain volume fractions, with strain energies averaged over the four RK4 stages to reduce splitting error. The number of RK4 sub-steps per outer timestep is set automatically from a stability criterion. Increasing `N_TIMESTEPS_BATCH` (the number of outer timesteps) improves accuracy at the cost of more kernel launches.
+
 ## Supported Phases and Fabrics
 
 - **Olivine**: fabrics A, B, C, D, E (different CRSS distributions for 4 slip systems)
@@ -143,6 +205,7 @@ The test suite includes:
 - Lambert equal-area projection round-trip tests
 - Strain increment accumulation tests
 - Full CPO integration tests (zero recrystallisation, decreasing grain size median)
+- Batch CPU path tests (`run_pathlines_batch!`): fraction conservation, monotone strains, M-index agreement with sequential Tsit5 path, multi-tracer multi-phase runs
 
 ## Citing 
 We developed DRex.jl by translating the python package PyDRex, developed by Bilton et al (2025) to Julia, including all tests. If you find our package useful, please give credit to the original authors as well by citing their work:
@@ -179,7 +242,16 @@ No extra installation steps are required beyond having those packages in your en
 2. **Backtrack target positions** — starting from user-specified locations at the *final* timestep, positions are advected backward through the snapshot sequence using backward Euler integration. This finds where the material originated at the first used timestep.
 3. **Seed CPO tracers** — `Mineral` tracers with random initial orientations are placed at the backtracked (source) positions.
 4. **Evolve CPO forward** — tracers are advected forward through the snapshot sequence. At each step the velocity gradient is trilinearly interpolated from the snapshot grid and the DRex ODE is integrated. Grain boundary migration, recrystallisation, and GBS are applied. All tracers evolve in parallel using `Threads.@threads`.
-5. **Write Paraview output** — a `.pvd` time-series plus per-step `.vtp` polydata files are written, containing tracer positions and point data: `fast_axis` (Bingham-mean olivine a-axis), `m_index` (texture strength 0–1), and `finite_strain`.
+5. **Write Paraview output** — a `.pvd` time-series plus per-step `.vtp` polydata files are written, containing tracer positions and the following point data fields:
+
+| Field | Type | Description |
+|---|---|---|
+| `fast_axis` | 3-vector | Bingham-mean olivine a-axis direction |
+| `m_index` | scalar | Texture strength (0 = random, 1 = single crystal) |
+| `finite_strain` | scalar | Largest principal stretch − 1 (derived from F) |
+| `deformation_gradient` | 3×3 tensor | Full finite deformation gradient tensor **F** |
+
+> **Note:** `deformation_gradient` is the *final* accumulated **F** for each tracer (the value at the end of the simulation), not a snapshot of F at each output time. It differs from the CPO: CPO tracks the orientations of individual grains and is updated at every step, whereas **F** describes the bulk macroscopic deformation of the material parcel.
 
 The result is that tracers end up at (approximately) the target positions at the final timestep, carrying the CPO that material at those locations would have accumulated along its flow path.
 
@@ -383,6 +455,7 @@ Useful Paraview filters and colormaps:
 - **Glyph → Arrow**, oriented by the `fast_axis` vector field, scaled by `m_index` — shows the seismic fast axis direction and strength
 - **Threshold** on `m_index` — hide tracers with near-random texture (M < 0.05)
 - **Warp By Vector** or **Animate** — the tracer positions update with each timestep, showing the Lagrangian flow path of each material parcel
+- **Calculator** on `deformation_gradient` — extract individual components (e.g. F_11) or derived quantities such as the principal stretches
 
 ### Directory structure
 
