@@ -177,6 +177,8 @@ function update_orientations!(
     get_velocity_gradient,
     pathline::Tuple;
     get_regime=nothing,
+    backend::KernelAbstractions.Backend = CPU(),
+    push_snapshot::Bool = true,
 ) where T<:AbstractFloat
     time_start, time_end, get_position = pathline
     n_grains = mineral.n_grains
@@ -198,7 +200,14 @@ function update_orientations!(
         fractions_prev,
     ))
 
-    function rhs!(dy, y, p, t)
+    # Pre-allocate buffers once and reuse across every ODE step.
+    # On CPU backend these are plain Arrays (no overhead); on GPU they are
+    # device arrays so the kernel can operate on them directly.
+    ori_device      = KernelAbstractions.allocate(backend, T, (n_grains, 3, 3))
+    ori_diff_device = KernelAbstractions.allocate(backend, T, (n_grains, 3, 3))
+    frac_diff_buf   = Vector{T}(undef, n_grains)
+
+    function rhs!(dy, y, _, t)
         position = get_position(t)
         vel_grad = T.(get_velocity_gradient(t, position))
 
@@ -213,22 +222,24 @@ function update_orientations!(
         F_diff = vel_grad * F
         _, V = polar_decompose(F_diff)
 
-        ori_diff = Array{T,3}(undef, n_grains, 3, 3)
-        frac_diff = Vector{T}(undef, n_grains)
+        # Upload orientations to the device (no-op memcopy on CPU backend).
+        copyto!(ori_device, ori)
 
-        derivatives!(ori_diff, frac_diff,
+        derivatives!(ori_diff_device, frac_diff_buf,
                      mineral.regime, mineral.phase, mineral.fabric, n_grains,
-                     ori, frac,
+                     ori_device, frac,
                      sr ./ sr_max, vel_grad ./ sr_max, V,
                      params[:stress_exponent],
                      params[:deformation_exponent],
                      params[:nucleation_efficiency],
                      params[:gbm_mobility],
-                     volume_fraction)
+                     volume_fraction;
+                     backend = backend)
 
         dy[1:9] .= vec(F_diff)
-        dy[10:n_grains*9+9] .= vec(ori_diff) .* sr_max
-        dy[n_grains*9+10:n_grains*10+9] .= frac_diff .* sr_max
+        # Download orientation derivatives back to CPU (no-op on CPU backend).
+        dy[10:n_grains*9+9] .= vec(Array(ori_diff_device)) .* sr_max
+        dy[n_grains*9+10:n_grains*10+9] .= frac_diff_buf .* sr_max
     end
 
     # Callback to apply GBS after each step
@@ -256,8 +267,15 @@ function update_orientations!(
 
     y_final = sol.u[end]
     F_new, ori_new, frac_new = extract_vars(y_final, n_grains)
-    push!(mineral.orientations, ori_new)
-    push!(mineral.fractions, frac_new)
+    if push_snapshot
+        push!(mineral.orientations, ori_new)
+        push!(mineral.fractions, frac_new)
+    else
+        # Overwrite the last snapshot in-place so the next call starts from the
+        # correct evolved state without growing the snapshot vectors.
+        mineral.orientations[end] = ori_new
+        mineral.fractions[end] = frac_new
+    end
     return F_new
 end
 
@@ -275,6 +293,8 @@ function update_all!(
     get_velocity_gradient,
     pathline::Tuple;
     get_regime=nothing,
+    backend::KernelAbstractions.Backend = CPU(),
+    push_snapshot::Bool = true,
 )
     new_F = deformation_gradient
     for mineral in minerals
@@ -282,9 +302,429 @@ function update_all!(
             mineral, params, deformation_gradient,
             get_velocity_gradient, pathline;
             get_regime=get_regime,
+            backend=backend,
+            push_snapshot=push_snapshot,
         )
     end
     return new_F
+end
+
+"""
+    run_pathlines_batch!(minerals_per_tracer, params, pathlines_data; backend=CPU())
+
+Integrate CPO for `n_tracers` pathlines using Tsit5 (adaptive Runge-Kutta).
+
+Each outer timestep is integrated with `update_all!` (Tsit5), which internally uses
+the same GPU kernel as `update_orientations!`.  Velocity gradients are linearly
+interpolated between consecutive pathline samples within each interval.
+
+# Arguments
+- `minerals_per_tracer` — `Vector{Vector{Mineral{T}}}` of length `n_tracers`;
+  each inner vector holds one `Mineral` per phase in the same order for every tracer.
+- `params` — parameter dict from `default_params()`, identical for all tracers.
+- `pathlines_data` — `Vector` of length `n_tracers`; each element is a named tuple or
+  tuple `(timestamps, positions, velocity_gradients)`:
+  - `timestamps` — `Vector{Float64}` of length `n_steps`
+  - `positions` — `Vector{Vector}` of 3-D positions at each timestamp
+  - `velocity_gradients` — `Vector{Matrix}` of 3×3 VG matrices at each timestamp
+- `backend` — KernelAbstractions backend (default `CPU()`).
+- `snapshot_stride` — save an orientation/fraction snapshot every this many steps
+  (default `1` = every step).  Use e.g. `10` to reduce snapshot count 10×,
+  keeping only ~51 output frames for 500 inner steps.  The returned strains
+  vector is subsampled to match.
+
+Returns `Vector{Vector{T}}` of per-tracer accumulated strain values
+(length `1 + cld(n_steps-1, snapshot_stride)`).
+"""
+function run_pathlines_batch!(
+    minerals_per_tracer::Vector{<:Vector{<:Mineral{T}}},
+    params::Dict{Symbol,Any},
+    pathlines_data::AbstractVector;
+    backend::KernelAbstractions.Backend = CPU(),
+    snapshot_stride::Int = 1,
+) where T<:AbstractFloat
+    n_tracers = length(minerals_per_tracer)
+    n_steps   = length(pathlines_data[1][1])
+
+    for ti in 2:n_tracers
+        length(pathlines_data[ti][1]) == n_steps ||
+            error("all pathlines must have the same number of timesteps for batch processing")
+    end
+
+    # Number of output snapshots (initial state + one per stride).
+    n_snapshots = 1 + cld(n_steps - 1, snapshot_stride)
+
+    # Per-tracer strain at each saved snapshot (length = n_snapshots).
+    strains     = [zeros(T, n_snapshots) for _ in 1:n_tracers]
+    # Running cumulative strain (updated every step, flushed to strains at snapshots).
+    cum_strains = zeros(Float64, n_tracers)
+
+    # Per-tracer macroscopic deformation gradient (identity initially).
+    def_grads = [Matrix{T}(I, 3, 3) for _ in 1:n_tracers]
+
+    if backend isa KernelAbstractions.CPU
+        # ── CPU path: Tsit5 per tracer, parallelised with Threads.@threads ──────
+        for step in 2:n_steps
+            save_snapshot = (step - 1) % snapshot_stride == 0 || step == n_steps
+            snap_idx      = save_snapshot ? cld(step - 1, snapshot_stride) + 1 : 0
+
+            inner! = let step=step, save_snapshot=save_snapshot, snap_idx=snap_idx
+                ti -> begin
+                    timestamps = pathlines_data[ti][1]
+                    positions  = pathlines_data[ti][2]
+                    vgs        = pathlines_data[ti][3]
+
+                    t0   = Float64(timestamps[step-1])
+                    t1   = Float64(timestamps[step])
+                    pos0 = positions[step-1]
+                    pos1 = positions[step]
+                    vg0  = Matrix{T}(vgs[step-1])
+                    vg1  = Matrix{T}(vgs[step])
+
+                    get_position = let t0=t0, t1=t1, pos0=pos0, pos1=pos1
+                        t -> begin
+                            α = (t - t0) / (t1 - t0)
+                            (1.0-α) .* pos0 .+ α .* pos1
+                        end
+                    end
+                    get_vg = let t0=t0, t1=t1, vg0=vg0, vg1=vg1
+                        (t, _) -> begin
+                            α = T((t - t0) / (t1 - t0))
+                            (1-α) .* vg0 .+ α .* vg1
+                        end
+                    end
+
+                    def_grads[ti] = update_all!(
+                        minerals_per_tracer[ti], params, def_grads[ti],
+                        get_vg, (t0, t1, get_position);
+                        backend=backend,
+                        push_snapshot=save_snapshot,
+                    )
+
+                    cum_strains[ti] += strain_increment(t1 - t0, Float64.(vg1))
+
+                    if save_snapshot
+                        strains[ti][snap_idx] = T(cum_strains[ti])
+                    end
+                end
+            end
+
+            Threads.@threads for ti in 1:n_tracers
+                inner!(ti)
+            end
+        end
+
+    else
+        # ── GPU batch path: adaptive-substep RK4 with _batch_grain_kernel! ────────
+        # All tracers are processed simultaneously per kernel launch.
+        # The number of RK4 sub-steps per outer timestep is determined from two
+        # stability bounds:
+        #   orientation: srm·h_sub ≤ 0.3  →  n_sub ≥ srm·|h_outer| / 0.3
+        #   fraction:    M_eff·srm·h_sub ≤ 2.79  →  n_sub ≥ M_eff·srm·|h_outer| / 2.79
+        # where srm = sr_max = max absolute strain-rate eigenvalue.
+
+        n_phases = length(minerals_per_tracer[1])
+        n_grains  = minerals_per_tracer[1][1].n_grains
+
+        # ── Device buffers ───────────────────────────────────────────────────────
+        ori_device   = KernelAbstractions.allocate(backend, T, (n_grains, n_tracers, 3, 3))
+        ori_diff_dev = KernelAbstractions.allocate(backend, T, (n_grains, n_tracers, 3, 3))
+        se_device    = KernelAbstractions.allocate(backend, T, (n_grains, n_tracers))
+        vg_dev       = KernelAbstractions.allocate(backend, T, (9, n_tracers))
+        sr_dev       = KernelAbstractions.allocate(backend, T, (9, n_tracers))
+
+        # ── CPU working buffers ──────────────────────────────────────────────────
+        ori_cpu    = Array{T,4}(undef, n_grains, n_tracers, 3, 3)
+        fracs_cpu  = Array{T,2}(undef, n_grains, n_tracers)
+        ori_start  = Array{T,4}(undef, n_grains, n_tracers, 3, 3)
+        ori_tmp    = Array{T,4}(undef, n_grains, n_tracers, 3, 3)
+        fracs_tmp  = Array{T,2}(undef, n_grains, n_tracers)
+        k1_ori     = Array{T,4}(undef, n_grains, n_tracers, 3, 3)
+        k2_ori     = Array{T,4}(undef, n_grains, n_tracers, 3, 3)
+        k3_ori     = Array{T,4}(undef, n_grains, n_tracers, 3, 3)
+        k4_ori     = Array{T,4}(undef, n_grains, n_tracers, 3, 3)
+        k1_frac    = Array{T,2}(undef, n_grains, n_tracers)
+        k2_frac    = Array{T,2}(undef, n_grains, n_tracers)
+        k3_frac    = Array{T,2}(undef, n_grains, n_tracers)
+        k4_frac    = Array{T,2}(undef, n_grains, n_tracers)
+        ori_diff   = Array{T,4}(undef, n_grains, n_tracers, 3, 3)
+        se_cpu     = Array{T,2}(undef, n_grains, n_tracers)
+        se_k1      = Array{T,2}(undef, n_grains, n_tracers)
+        se_k2      = Array{T,2}(undef, n_grains, n_tracers)
+        se_k3      = Array{T,2}(undef, n_grains, n_tracers)
+        se_k4      = Array{T,2}(undef, n_grains, n_tracers)
+        se_avg     = Array{T,2}(undef, n_grains, n_tracers)
+        vg_cpu     = Array{T,2}(undef, 9, n_tracers)
+        sr_cpu     = Array{T,2}(undef, 9, n_tracers)
+        sr_max_arr = Vector{T}(undef, n_tracers)
+        sr_max_k1  = Vector{T}(undef, n_tracers)
+
+        vg0_all = [Matrix{T}(undef, 3, 3) for _ in 1:n_tracers]
+        vg1_all = [Matrix{T}(undef, 3, 3) for _ in 1:n_tracers]
+
+        batch_kern = _batch_grain_kernel!(backend, 64)
+
+        # ── Inner helper: evaluate batch RHS at (ori_in, fracs_in, α) ───────────
+        # α ∈ [0,1] interpolates VG within the current outer step.
+        # Writes scaled time derivatives into dest_ori / dest_frac.
+        function eval_batch!(dest_ori, dest_frac,
+                             ori_in, fracs_in, α,
+                             phase_int, fabric_int, smoothing,
+                             vol_frac, gbm_M, s_exp, d_exp, n_eff)
+            for ti in 1:n_tracers
+                vg_ti  = (1-α) .* vg0_all[ti] .+ α .* vg1_all[ti]
+                sr_ti  = (vg_ti .+ vg_ti') ./ 2
+                sr_max = T(maximum(abs, eigvals(Symmetric(Matrix{Float64}(sr_ti)))))
+                # Use actual sr_max (no eps clamp) — eps(T) ≈ 1.19e-7 for Float32,
+                # which is >> actual corner-flow strain rates (~1e-14 s⁻¹) and would
+                # artificially inflate the stiffness of the fraction ODE by ~10^7×.
+                # Use a tiny floor only to guard against true-zero sr_max.
+                sr_max = max(sr_max, T(1e-30))
+                sr_max_arr[ti] = sr_max
+                @inbounds for j in 1:3, i in 1:3
+                    k = (j-1)*3 + i
+                    vg_cpu[k,ti] = vg_ti[i,j] / sr_max
+                    sr_cpu[k,ti] = sr_ti[i,j]  / sr_max
+                end
+            end
+            copyto!(vg_dev,    vg_cpu)
+            copyto!(sr_dev,    sr_cpu)
+            copyto!(ori_device, ori_in)
+            batch_kern(
+                ori_diff_dev, se_device, ori_device, vg_dev, sr_dev,
+                phase_int, fabric_int, smoothing, s_exp, d_exp, n_eff;
+                ndrange = n_grains * n_tracers,
+            )
+            KernelAbstractions.synchronize(backend)
+            copyto!(ori_diff, ori_diff_dev)
+            copyto!(se_cpu,   se_device)
+            @inbounds for ti in 1:n_tracers
+                sr_max = sr_max_arr[ti]
+                mean_E = zero(T)
+                for g in 1:n_grains
+                    mean_E += fracs_in[g,ti] * se_cpu[g,ti]
+                end
+                for i in 1:3, j in 1:3, g in 1:n_grains
+                    dest_ori[g,ti,i,j] = ori_diff[g,ti,i,j] * sr_max
+                end
+                for g in 1:n_grains
+                    dest_frac[g,ti] = vol_frac * gbm_M * fracs_in[g,ti] *
+                        smoothing * (mean_E - se_cpu[g,ti]) * sr_max
+                end
+            end
+        end
+
+        for step in 2:n_steps
+            save_snapshot = (step - 1) % snapshot_stride == 0 || step == n_steps
+            snap_idx      = save_snapshot ? cld(step - 1, snapshot_stride) + 1 : 0
+            h_outer       = T(pathlines_data[1][1][step] - pathlines_data[1][1][step-1])
+
+            # Accumulate strain + Euler-update deformation gradients
+            for ti in 1:n_tracers
+                t0  = Float64(pathlines_data[ti][1][step-1])
+                t1  = Float64(pathlines_data[ti][1][step])
+                vg1 = pathlines_data[ti][3][step]
+                cum_strains[ti] += strain_increment(t1 - t0, Float64.(vg1))
+                if save_snapshot
+                    strains[ti][snap_idx] = T(cum_strains[ti])
+                end
+                def_grads[ti] = (I + Matrix{T}(vg1) * T(t1 - t0)) * def_grads[ti]
+            end
+
+            # Cache endpoint VGs for interpolation inside eval_batch!
+            for ti in 1:n_tracers
+                vg0_all[ti] .= pathlines_data[ti][3][step-1]
+                vg1_all[ti] .= pathlines_data[ti][3][step]
+            end
+
+            for phase_idx in 1:n_phases
+                phase_int  = Int32(Int(minerals_per_tracer[1][phase_idx].phase))
+                fabric_int = Int32(Int(minerals_per_tracer[1][phase_idx].fabric))
+                vol_frac   = T(params[:phase_fractions][phase_idx])
+                gbm_M      = T(params[:gbm_mobility])
+                smoothing  = T(minerals_per_tracer[1][phase_idx].regime == frictional_yielding ? 0.3 : 1.0)
+                gbs_th_g   = T(params[:gbs_threshold]) / n_grains
+                s_exp      = T(params[:stress_exponent])
+                d_exp      = T(params[:deformation_exponent])
+                n_eff      = T(params[:nucleation_efficiency])
+                # Pack current orientations/fractions; save outer-step start for GBS
+                for ti in 1:n_tracers
+                    m      = minerals_per_tracer[ti][phase_idx]
+                    ori_s  = m.orientations[end]
+                    frac_s = m.fractions[end]
+                    @inbounds for i in 1:3, j in 1:3, g in 1:n_grains
+                        v = ori_s[g,i,j]
+                        ori_cpu[g,ti,i,j]   = v
+                        ori_start[g,ti,i,j] = v
+                    end
+                    @inbounds for g in 1:n_grains
+                        fracs_cpu[g,ti] = frac_s[g]
+                    end
+                end
+
+                # ── Determine number of RK4 sub-steps from orientation stability ─
+                # The fraction ODE is extremely stiff (α*h_outer >> 1) so it is
+                # integrated with an exact exponential integrator instead of RK4.
+                # Only the orientation stability bound determines n_sub.
+                max_srm_h = T(0)
+                for ti in 1:n_tracers
+                    for α_end in (T(0), T(1))
+                        vg_ti  = (1-α_end) .* vg0_all[ti] .+ α_end .* vg1_all[ti]
+                        sr_ti  = (vg_ti .+ vg_ti') ./ 2
+                        srm    = T(maximum(abs, eigvals(Symmetric(Matrix{Float64}(sr_ti)))))
+                        max_srm_h = max(max_srm_h, srm * abs(h_outer))
+                    end
+                end
+                n_sub = max(1, ceil(Int, Float64(max_srm_h) / 0.3))
+                h_sub = h_outer / T(n_sub)
+
+                # ── RK4 sub-steps (orientations) + exponential integrator (fracs) ─
+                for s in 0:n_sub-1
+                    α0 = T(s)   / T(n_sub)   # start of sub-step
+                    α1 = T(s+1) / T(n_sub)   # end of sub-step
+                    αm = (α0 + α1) / 2        # midpoint
+
+                    # k1 = f(ori, α0) — also captures se_cpu and sr_max for frac update
+                    eval_batch!(k1_ori, k1_frac, ori_cpu, fracs_cpu, α0,
+                                phase_int, fabric_int, smoothing,
+                                vol_frac, gbm_M, s_exp, d_exp, n_eff)
+                    # Save strain energies + sr_max from k1 for the exponential frac update.
+                    # Orientation derivatives do NOT depend on fracs, so se_cpu is fully
+                    # determined by orientations and VG alone.
+                    se_k1     .= se_cpu
+                    sr_max_k1 .= sr_max_arr
+
+                    # k2 = f(ori + h/2·k1, αm)  — fracs constant (don't affect ori deriv)
+                    @inbounds for ti in 1:n_tracers, i in 1:3, j in 1:3, g in 1:n_grains
+                        ori_tmp[g,ti,i,j] = ori_cpu[g,ti,i,j] + (h_sub/2) * k1_ori[g,ti,i,j]
+                    end
+                    eval_batch!(k2_ori, k2_frac, ori_tmp, fracs_cpu, αm,
+                                phase_int, fabric_int, smoothing,
+                                vol_frac, gbm_M, s_exp, d_exp, n_eff)
+                    se_k2 .= se_cpu
+
+                    # k3 = f(ori + h/2·k2, αm)
+                    @inbounds for ti in 1:n_tracers, i in 1:3, j in 1:3, g in 1:n_grains
+                        ori_tmp[g,ti,i,j] = ori_cpu[g,ti,i,j] + (h_sub/2) * k2_ori[g,ti,i,j]
+                    end
+                    eval_batch!(k3_ori, k3_frac, ori_tmp, fracs_cpu, αm,
+                                phase_int, fabric_int, smoothing,
+                                vol_frac, gbm_M, s_exp, d_exp, n_eff)
+                    se_k3 .= se_cpu
+
+                    # k4 = f(ori + h·k3, α1)
+                    @inbounds for ti in 1:n_tracers, i in 1:3, j in 1:3, g in 1:n_grains
+                        ori_tmp[g,ti,i,j] = ori_cpu[g,ti,i,j] + h_sub * k3_ori[g,ti,i,j]
+                    end
+                    eval_batch!(k4_ori, k4_frac, ori_tmp, fracs_cpu, α1,
+                                phase_int, fabric_int, smoothing,
+                                vol_frac, gbm_M, s_exp, d_exp, n_eff)
+                    se_k4 .= se_cpu
+
+                    # ── Orientation RK4 update ────────────────────────────────────
+                    @inbounds for ti in 1:n_tracers, i in 1:3, j in 1:3, g in 1:n_grains
+                        ori_cpu[g,ti,i,j] += (h_sub / 6) * (
+                            k1_ori[g,ti,i,j] + 2*k2_ori[g,ti,i,j] +
+                            2*k3_ori[g,ti,i,j] + k4_ori[g,ti,i,j])
+                    end
+
+                    # ── Exponential fraction integrator with adaptive sub-stepping ─
+                    # The fraction ODE dfrac/dt = M·vf·s·frac·(mean_E - E_g)·sr has
+                    # exact solution frac(t+h) ∝ frac(t)·exp(α_g·h).
+                    #
+                    # Use RK4-weighted average of SE across k1..k4 to account for
+                    # orientation evolution during the sub-step (reduces operator-
+                    # splitting error vs using SE frozen at k1 alone).
+                    @inbounds for ti in 1:n_tracers
+                        for g in 1:n_grains
+                            se_avg[g,ti] = (se_k1[g,ti] + 2*se_k2[g,ti] +
+                                            2*se_k3[g,ti] + se_k4[g,ti]) / 6
+                        end
+                    end
+
+                    α_frac_max = zero(T)
+                    @inbounds for ti in 1:n_tracers
+                        sr = sr_max_k1[ti]
+                        mean_E = zero(T)
+                        for g in 1:n_grains
+                            mean_E += fracs_cpu[g,ti] * se_avg[g,ti]
+                        end
+                        for g in 1:n_grains
+                            ag = abs(vol_frac * gbm_M * smoothing * (mean_E - se_avg[g,ti]) * sr)
+                            α_frac_max = max(α_frac_max, ag)
+                        end
+                    end
+                    n_frac_sub = max(1, ceil(Int, Float64(α_frac_max) * Float64(h_sub) / 2.79))
+                    h_frac = h_sub / T(n_frac_sub)
+
+                    for _ in 1:n_frac_sub
+                        @inbounds for ti in 1:n_tracers
+                            sr = sr_max_k1[ti]
+                            mean_E = zero(T)
+                            for g in 1:n_grains
+                                mean_E += fracs_cpu[g,ti] * se_avg[g,ti]
+                            end
+                            # Log-space update, shift by max to avoid Float32 overflow
+                            max_log_w = T(-Inf32)
+                            for g in 1:n_grains
+                                α_g = vol_frac * gbm_M * smoothing * (mean_E - se_avg[g,ti]) * sr
+                                lw = log(max(fracs_cpu[g,ti], eps(T))) + α_g * h_frac
+                                fracs_tmp[g,ti] = lw
+                                max_log_w = max(max_log_w, lw)
+                            end
+                            s_frac = zero(T)
+                            for g in 1:n_grains
+                                fracs_cpu[g,ti] = exp(fracs_tmp[g,ti] - max_log_w)
+                                s_frac += fracs_cpu[g,ti]
+                            end
+                            for g in 1:n_grains
+                                fracs_cpu[g,ti] /= s_frac
+                            end
+                        end
+                    end
+
+                    # Apply GBS after each sub-step (compare against outer-step start)
+                    @inbounds for ti in 1:n_tracers
+                        s_frac = zero(T)
+                        for g in 1:n_grains
+                            if fracs_cpu[g,ti] < gbs_th_g
+                                for i in 1:3, j in 1:3
+                                    ori_cpu[g,ti,i,j] = ori_start[g,ti,i,j]
+                                end
+                                fracs_cpu[g,ti] = gbs_th_g
+                            end
+                            s_frac += fracs_cpu[g,ti]
+                        end
+                        for g in 1:n_grains
+                            fracs_cpu[g,ti] /= s_frac
+                        end
+                    end
+                end  # for s in sub-steps
+
+                # ── Store snapshot from final state ───────────────────────────
+                for ti in 1:n_tracers
+                    m         = minerals_per_tracer[ti][phase_idx]
+                    ori_snap  = Array{T,3}(undef, n_grains, 3, 3)
+                    frac_snap = Vector{T}(undef, n_grains)
+                    @inbounds for g in 1:n_grains
+                        frac_snap[g] = fracs_cpu[g,ti]
+                        for i in 1:3, j in 1:3
+                            ori_snap[g,i,j] = ori_cpu[g,ti,i,j]
+                        end
+                    end
+                    if save_snapshot
+                        push!(m.orientations, ori_snap)
+                        push!(m.fractions, frac_snap)
+                    else
+                        m.orientations[end] = ori_snap
+                        m.fractions[end] = frac_snap
+                    end
+                end
+            end  # for phase_idx
+        end  # for step
+    end  # if CPU / else GPU
+
+    return strains
 end
 
 """

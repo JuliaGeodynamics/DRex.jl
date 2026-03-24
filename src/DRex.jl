@@ -33,6 +33,7 @@ using LinearAlgebra
 using StaticArrays
 using Random
 using Rotations
+using KernelAbstractions
 
 include("core.jl")
 include("tensors.jl")
@@ -53,7 +54,7 @@ export DeformationRegime, min_viscosity, matrix_diffusion, boundary_diffusion,
        frictional_yielding, max_viscosity
 export DefaultParams, default_params
 export derivatives!, get_crss
-export Mineral, update_orientations!, update_all!, StiffnessTensors, voigt_averages
+export Mineral, update_orientations!, update_all!, run_pathlines_batch!, StiffnessTensors, voigt_averages
 export OLIVINE_SLIP_SYSTEMS, OLIVINE_PRIMARY_AXIS
 
 # Diagnostics

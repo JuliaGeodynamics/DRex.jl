@@ -1,10 +1,11 @@
 name = "DRex"
 uuid = "d4e3b9a0-5c1a-4e2b-8f3d-6a7b8c9d0e1f"
 license = "GPL-3.0-or-later"
-version = "0.1.0"
 authors = ["Boris Kaus <kaus@uni-mainz.de>"]
+version = "0.1.0"
 
 [deps]
+KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 OrdinaryDiffEq = "1dea7af3-3e70-54e6-95c3-0bf5283fa5ed"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
@@ -14,6 +15,7 @@ StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 [weakdeps]
 GeophysicalModelGenerator = "3700c31b-fa53-48a6-808a-ef22d5a84742"
 LaMEM = "2e889f3d-35ce-4a77-8ea2-858aecb630f7"
+Metal = "dde4c033-4e86-420c-a63e-0dd931031962"
 WriteVTK = "64499a7a-5c06-52f2-abe2-ccb03c286192"
 
 [extensions]
@@ -21,11 +23,13 @@ DRexLaMEMExt = ["LaMEM", "GeophysicalModelGenerator", "WriteVTK"]
 
 [compat]
 GeophysicalModelGenerator = "0.7"
+KernelAbstractions = "0.9"
 LaMEM = "0.4"
-WriteVTK = "1"
+Metal = "1"
 OrdinaryDiffEq = "6"
 Rotations = "1"
 StaticArrays = "1"
+WriteVTK = "1"
 julia = "1.9"
 
 [extras]

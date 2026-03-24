@@ -119,18 +119,12 @@ function get_crss(phase::MineralPhase, fabric::MineralFabric,
             return SVector{4,T}(3, 2, Inf, 1)
         elseif fabric == olivine_D
             return SVector{4,T}(1, 1, 3, Inf)
-        elseif fabric == olivine_E
+        else  # olivine_E
             return SVector{4,T}(3, 1, 2, Inf)
-        else
-            throw(ArgumentError("unsupported olivine fabric: $fabric"))
         end
-    elseif phase == enstatite
-        if fabric == enstatite_AB
-            return SVector{4,T}(Inf, Inf, Inf, 1)
-        end
-        throw(ArgumentError("unsupported enstatite fabric: $fabric"))
+    else  # enstatite — enstatite_AB
+        return SVector{4,T}(Inf, Inf, Inf, 1)
     end
-    throw(ArgumentError("phase must be a valid MineralPhase, not $phase"))
 end
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -175,7 +169,7 @@ Calculate deformation rate tensor (Schmid tensor). Allocation-free.
     slip_rates::SVector{4,T}
 )::SMatrix{3,3,T,9} where T<:AbstractFloat
     r1 = slip_rates[1]; r2 = slip_rates[2]; r3 = slip_rates[3]; r4 = slip_rates[4]
-    return SMatrix{3,3,Float64}(ntuple(9) do idx
+    return SMatrix{3,3,T,9}(ntuple(Val(9)) do idx
         j, i = fldmod1(idx, 3)  # column-major: (col, row)
         2 * (r1 * orientation[1,i] * orientation[2,j] +
              r2 * orientation[1,i] * orientation[3,j] +
@@ -218,7 +212,7 @@ Calculate relative slip rates of the active slip systems for olivine. Allocation
 """
 @inline function _get_slip_rates_olivine(
     invariants::SVector{4,T},
-    slip_indices::SVector{4,Int},
+    slip_indices::SVector{4,Int32},
     crss::SVector{4,T},
     deformation_exponent::T
 )::SVector{4,T} where T<:AbstractFloat
@@ -231,13 +225,16 @@ Calculate relative slip rates of the active slip systems for olivine. Allocation
     ratio_min = prefactor * invariants[i_min] / crss[i_min]
     ratio_int = prefactor * invariants[i_int] / crss[i_int]
 
-    # Build the result
-    vals = MVector{4,T}(undef)
-    vals[i_inac] = zero(T)
-    vals[i_min]  = ratio_min * abs(ratio_min)^(deformation_exponent - one(T))
-    vals[i_int]  = ratio_int * abs(ratio_int)^(deformation_exponent - one(T))
-    vals[i_max]  = one(T)
-    return SVector(vals)
+    r_min = ratio_min * abs(ratio_min)^(deformation_exponent - one(T))
+    r_int = ratio_int * abs(ratio_int)^(deformation_exponent - one(T))
+
+    # Build without MVector: select each slot by comparing against known indices.
+    # Fully unrolled by the compiler (GPU-safe, no heap allocation).
+    v1 = Int32(1) == i_inac ? zero(T) : Int32(1) == i_min ? r_min : Int32(1) == i_int ? r_int : one(T)
+    v2 = Int32(2) == i_inac ? zero(T) : Int32(2) == i_min ? r_min : Int32(2) == i_int ? r_int : one(T)
+    v3 = Int32(3) == i_inac ? zero(T) : Int32(3) == i_min ? r_min : Int32(3) == i_int ? r_int : one(T)
+    v4 = Int32(4) == i_inac ? zero(T) : Int32(4) == i_min ? r_min : Int32(4) == i_int ? r_int : one(T)
+    return SVector{4,T}(v1, v2, v3, v4)
 end
 
 """
@@ -251,17 +248,20 @@ Calculate the rotation rate for a grain. Allocation-free.
     deformation_rate::SMatrix{3,3,T,9},
     slip_rate_softest::T
 )::SMatrix{3,3,T,9} where T<:AbstractFloat
-    # Spin vector
-    spin = MVector{3,T}(undef)
-    @inbounds for j in 1:3
-        r = mod1(j + 1, 3)
-        s = mod1(j + 2, 3)
-        spin[j] = ((velocity_gradient[s,r] - velocity_gradient[r,s]) -
-                    (deformation_rate[s,r] - deformation_rate[r,s]) * slip_rate_softest) / 2
-    end
+    # Spin vector — computed explicitly as SVector (no MVector = no heap alloc on GPU).
+    # j=1: r=2, s=3 | j=2: r=3, s=1 | j=3: r=1, s=2
+    half = T(0.5)
+    spin = SVector{3,T}(
+        ((velocity_gradient[3,2] - velocity_gradient[2,3]) -
+         (deformation_rate[3,2]  - deformation_rate[2,3])  * slip_rate_softest) * half,
+        ((velocity_gradient[1,3] - velocity_gradient[3,1]) -
+         (deformation_rate[1,3]  - deformation_rate[3,1])  * slip_rate_softest) * half,
+        ((velocity_gradient[2,1] - velocity_gradient[1,2]) -
+         (deformation_rate[2,1]  - deformation_rate[1,2])  * slip_rate_softest) * half,
+    )
 
     # orientation_change[p,q] = Σ_rs ε[q,r,s] * orientation[p,s] * spin[r]
-    return SMatrix{3,3,T}(ntuple(9) do idx
+    return SMatrix{3,3,T,9}(ntuple(Val(9)) do idx
         q, p = fldmod1(idx, 3)  # column-major: (col, row)
         val = zero(T)
         @inbounds for s in 1:3, r in 1:3
@@ -280,7 +280,6 @@ Calculate strain energy due to dislocations for a grain. Allocation-free.
 @inline function _get_strain_energy(
     crss::SVector{4,T},
     slip_rates::SVector{4,T},
-    slip_indices::SVector{4,Int},
     slip_rate_softest::T,
     stress_exponent::T,
     deformation_exponent::T,
@@ -335,34 +334,166 @@ Returns (orientation_change::SMatrix{3,3}, strain_energy::Float64).
         slip_rates = SVector{4,T}(zero(T), zero(T), zero(T),
             abs(slip_invariants[4]) > eps(T) ? one(T) : zero(T))
     else
-        error("unsupported phase")
+        # Unreachable for valid MineralPhase values; returns zeros to stay GPU-safe.
+        return SMatrix{3,3,T,9}(0,0,0, 0,0,0, 0,0,0), zero(T)
     end
 
     deformation_rate = _get_deformation_rate(phase, orientation, slip_rates)
     slip_rate_softest = _get_slip_rate_softest(deformation_rate, velocity_gradient)
     orientation_change = _get_orientation_change(orientation, velocity_gradient,
                                                   deformation_rate, slip_rate_softest)
-    strain_energy = _get_strain_energy(crss, slip_rates, slip_indices, slip_rate_softest,
+    strain_energy = _get_strain_energy(crss, slip_rates, slip_rate_softest,
                                         stress_exponent, deformation_exponent,
                                         nucleation_efficiency)
     return orientation_change, strain_energy
 end
 
-"""Allocation-free argsort for 4-element SVector. Returns 1-based indices sorted ascending."""
-@inline function _argsort4(v::SVector{4,T})::SVector{4,Int} where T<:AbstractFloat
-    # Simple insertion sort for 4 elements
-    idx = MVector{4,Int}(1, 2, 3, 4)
-    @inbounds for i in 2:4
-        key = v[idx[i]]
-        ki = idx[i]
-        j = i - 1
-        while j >= 1 && v[idx[j]] > key
-            idx[j+1] = idx[j]
-            j -= 1
-        end
-        idx[j+1] = ki
+"""Allocation-free argsort for 4-element SVector. Returns 1-based Int32 indices sorted ascending."""
+@inline function _argsort4(v::SVector{4,T})::SVector{4,Int32} where T<:AbstractFloat
+    # Fully unrolled insertion sort — no MVector, no heap allocation (GPU-safe).
+    i1, i2, i3, i4 = Int32(1), Int32(2), Int32(3), Int32(4)
+    # insert position 2
+    if v[i1] > v[i2]; i1, i2 = i2, i1; end
+    # insert position 3
+    if v[i2] > v[i3]; i2, i3 = i3, i2; end
+    if v[i1] > v[i2]; i1, i2 = i2, i1; end
+    # insert position 4
+    if v[i3] > v[i4]; i3, i4 = i4, i3; end
+    if v[i2] > v[i3]; i2, i3 = i3, i2; end
+    if v[i1] > v[i2]; i1, i2 = i2, i1; end
+    return SVector{4,Int32}(i1, i2, i3, i4)
+end
+
+# ──────────────────────────────────────────────────────────────────────────────
+# GPU kernel: per-grain orientation change + strain energy (Pass 1)
+# ──────────────────────────────────────────────────────────────────────────────
+
+"""
+Per-grain KernelAbstractions kernel.  Each work item processes one grain independently.
+Writes orientation change into `orientations_diff` and scalar strain energy into
+`strain_energies`.  The fraction-update (Pass 2) requires a global reduction and is
+done on CPU after synchronisation.
+"""
+@kernel function _grain_kernel!(
+    orientations_diff,          # AbstractArray{T,3}  — output
+    strain_energies,            # AbstractVector{T}   — output
+    @Const(orientations),       # AbstractArray{T,3}  — read-only input
+    sr_vec,                     # SVector{9,T}  — flattened strain-rate matrix
+    vg_vec,                     # SVector{9,T}  — flattened velocity-gradient matrix
+    phase_int::Int32,
+    fabric_int::Int32,
+    smoothing,
+    stress_exponent,
+    deformation_exponent,
+    nucleation_efficiency,
+)
+    T   = eltype(orientations_diff)
+    g   = @index(Global, Linear)
+
+    sr  = SMatrix{3,3,T,9}(sr_vec[1], sr_vec[2], sr_vec[3],
+                            sr_vec[4], sr_vec[5], sr_vec[6],
+                            sr_vec[7], sr_vec[8], sr_vec[9])
+    vg  = SMatrix{3,3,T,9}(vg_vec[1], vg_vec[2], vg_vec[3],
+                            vg_vec[4], vg_vec[5], vg_vec[6],
+                            vg_vec[7], vg_vec[8], vg_vec[9])
+
+    # reinterpret bypasses the bounds-check in the @enum constructor (which calls
+    # string() internally and is not GPU-safe).  The caller guarantees valid values.
+    phase  = reinterpret(MineralPhase,  phase_int)
+    fabric = reinterpret(MineralFabric, fabric_int)
+
+    @inbounds ori = SMatrix{3,3,T,9}(
+        orientations[g,1,1], orientations[g,2,1], orientations[g,3,1],
+        orientations[g,1,2], orientations[g,2,2], orientations[g,3,2],
+        orientations[g,1,3], orientations[g,2,3], orientations[g,3,3],
+    )
+
+    _n = T(stress_exponent)
+    _p = T(deformation_exponent)
+    _ν = T(nucleation_efficiency)
+    _s = T(smoothing)
+
+    orientation_change, s_energy = _get_rotation_and_strain(
+        phase, fabric, ori, sr, vg, _n, _p, _ν,
+    )
+
+    oc = orientation_change * _s
+    @inbounds for i in 1:3, j in 1:3
+        orientations_diff[g,i,j] = oc[i,j]
     end
-    return SVector(idx)
+    @inbounds strain_energies[g] = s_energy
+end
+
+# ── Batch GPU kernel: all tracers × all grains in one launch ─────────────────
+
+"""
+Per-(tracer, grain) KernelAbstractions kernel.  One work item = one (tracer, grain) pair.
+
+Memory layout uses `(n_grains, n_tracers, …)` so that adjacent work-items (grains
+within the same tracer) access adjacent memory → coalesced reads on GPU.
+
+The fraction update (GBM) requires a per-tracer global reduction and is done on
+CPU after kernel synchronisation (Pass 2), same as for `_grain_kernel!`.
+"""
+@kernel function _batch_grain_kernel!(
+    orientations_diff,          # (n_grains, n_tracers, 3, 3) — output
+    strain_energies,            # (n_grains, n_tracers) — output
+    @Const(orientations),       # (n_grains, n_tracers, 3, 3) — read-only
+    @Const(vg_device),          # (9, n_tracers) — normalised velocity gradients
+    @Const(sr_device),          # (9, n_tracers) — normalised strain rates
+    phase_int::Int32,
+    fabric_int::Int32,
+    smoothing,
+    stress_exponent,
+    deformation_exponent,
+    nucleation_efficiency,
+)
+    T   = eltype(orientations_diff)
+    idx = @index(Global, Linear)
+    n_g = Int32(size(orientations, 1))
+
+    # Map linear 1-based index → (grain, tracer)
+    g  = (idx - Int32(1)) % n_g + Int32(1)
+    ti = (idx - Int32(1)) ÷ n_g + Int32(1)
+
+    # Load normalised velocity gradient and strain rate for this tracer.
+    # vg_device is stored column-major flattened: [1..3] = col 1, [4..6] = col 2, [7..9] = col 3.
+    vg = SMatrix{3,3,T,9}(
+        vg_device[1,ti], vg_device[2,ti], vg_device[3,ti],
+        vg_device[4,ti], vg_device[5,ti], vg_device[6,ti],
+        vg_device[7,ti], vg_device[8,ti], vg_device[9,ti],
+    )
+    sr = SMatrix{3,3,T,9}(
+        sr_device[1,ti], sr_device[2,ti], sr_device[3,ti],
+        sr_device[4,ti], sr_device[5,ti], sr_device[6,ti],
+        sr_device[7,ti], sr_device[8,ti], sr_device[9,ti],
+    )
+
+    # reinterpret avoids GPU-unsafe @enum constructor (see _grain_kernel! comment).
+    phase  = reinterpret(MineralPhase,  phase_int)
+    fabric = reinterpret(MineralFabric, fabric_int)
+
+    # orientations[g, ti, i, j] where i=row, j=col; construct SMatrix column-by-column.
+    @inbounds ori = SMatrix{3,3,T,9}(
+        orientations[g,ti,1,1], orientations[g,ti,2,1], orientations[g,ti,3,1],
+        orientations[g,ti,1,2], orientations[g,ti,2,2], orientations[g,ti,3,2],
+        orientations[g,ti,1,3], orientations[g,ti,2,3], orientations[g,ti,3,3],
+    )
+
+    _n = T(stress_exponent)
+    _p = T(deformation_exponent)
+    _ν = T(nucleation_efficiency)
+    _s = T(smoothing)
+
+    orientation_change, s_energy = _get_rotation_and_strain(
+        phase, fabric, ori, sr, vg, _n, _p, _ν,
+    )
+
+    oc = orientation_change * _s
+    @inbounds for i in 1:3, j in 1:3
+        orientations_diff[g,ti,i,j] = oc[i,j]
+    end
+    @inbounds strain_energies[g,ti] = s_energy
 end
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -402,7 +533,8 @@ function derivatives!(
     deformation_exponent::Real,
     nucleation_efficiency::Real,
     gbm_mobility::Real,
-    volume_fraction::Real,
+    volume_fraction::Real;
+    backend::KernelAbstractions.Backend = CPU(),
 ) where T<:AbstractFloat
     # Convert scalar parameters to T once
     _n  = T(stress_exponent)
@@ -435,48 +567,46 @@ function derivatives!(
     end
 
     # matrix_dislocation or frictional_yielding
-    sr = SMatrix{3,3,T,9}(
-        strain_rate[1,1], strain_rate[2,1], strain_rate[3,1],
-        strain_rate[1,2], strain_rate[2,2], strain_rate[3,2],
-        strain_rate[1,3], strain_rate[2,3], strain_rate[3,3]
-    )
-    vg = SMatrix{3,3,T,9}(
-        velocity_gradient[1,1], velocity_gradient[2,1], velocity_gradient[3,1],
-        velocity_gradient[1,2], velocity_gradient[2,2], velocity_gradient[3,2],
-        velocity_gradient[1,3], velocity_gradient[2,3], velocity_gradient[3,3]
-    )
-
     smoothing = regime == frictional_yielding ? T(0.3) : one(T)
 
-    # Per-grain loop (inner computation is allocation-free; each grain is independent)
-    strain_energies = Vector{T}(undef, n_grains)
-    Threads.@threads for g in 1:n_grains
-        @inbounds begin
-            ori = SMatrix{3,3,T,9}(
-                orientations[g,1,1], orientations[g,2,1], orientations[g,3,1],
-                orientations[g,1,2], orientations[g,2,2], orientations[g,3,2],
-                orientations[g,1,3], orientations[g,2,3], orientations[g,3,3]
-            )
-            orientation_change, strain_energy = _get_rotation_and_strain(
-                phase, fabric, ori, sr, vg, _n, _p, _ν
-            )
-            oc = orientation_change * smoothing
-            for i in 1:3, j in 1:3
-                orientations_diff[g,i,j] = oc[i,j]
-            end
-            strain_energies[g] = strain_energy
-        end
-    end
+    # Flatten 3×3 matrices to SVector{9} for kernel argument passing (value types, no
+    # device transfer needed).
+    sr_vec = SVector{9,T}(
+        strain_rate[1,1], strain_rate[2,1], strain_rate[3,1],
+        strain_rate[1,2], strain_rate[2,2], strain_rate[3,2],
+        strain_rate[1,3], strain_rate[2,3], strain_rate[3,3],
+    )
+    vg_vec = SVector{9,T}(
+        velocity_gradient[1,1], velocity_gradient[2,1], velocity_gradient[3,1],
+        velocity_gradient[1,2], velocity_gradient[2,2], velocity_gradient[3,2],
+        velocity_gradient[1,3], velocity_gradient[2,3], velocity_gradient[3,3],
+    )
 
-    # Volume-averaged mean strain energy
+    # ── Pass 1: per-grain orientation change + strain energy (GPU kernel) ─────
+    # Allocate strain_energies on the backend device (no-op copy on CPU backend).
+    strain_energies = KernelAbstractions.allocate(backend, T, (n_grains,))
+
+    grain_kern = _grain_kernel!(backend, 64)
+    grain_kern(
+        orientations_diff, strain_energies, orientations,
+        sr_vec, vg_vec,
+        Int32(Int(phase)), Int32(Int(fabric)),
+        smoothing, _n, _p, _ν;
+        ndrange = n_grains,
+    )
+    KernelAbstractions.synchronize(backend)
+
+    # ── Pass 2: mean energy (global reduction) + fraction derivatives (CPU) ──
+    # fractions / fractions_diff are always CPU-side (ODE state vector).
+    strain_energies_cpu = Array(strain_energies)   # no-op on CPU backend
+
     mean_energy = zero(T)
     @inbounds for g in 1:n_grains
-        mean_energy += fractions[g] * strain_energies[g]
+        mean_energy += fractions[g] * strain_energies_cpu[g]
     end
 
-    # Fraction derivatives
     @inbounds for g in 1:n_grains
-        residual = smoothing * (mean_energy - strain_energies[g])
+        residual = smoothing * (mean_energy - strain_energies_cpu[g])
         fractions_diff[g] = _vf * _M * fractions[g] * residual
     end
     return nothing

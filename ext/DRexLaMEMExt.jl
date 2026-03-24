@@ -431,6 +431,10 @@ function _write_paraview(tracers, vtk_prefix, n_saved, get_time)
         fast_axes     = zeros(3, n_tracers)
         m_indices     = zeros(n_tracers)
         strains       = zeros(n_tracers)
+        # Deformation gradient F (3×3×n_tracers tensor).
+        # Note: this is the *final* accumulated F for each tracer regardless of k,
+        # since CPOTracer does not store per-snapshot F history.
+        def_grads     = zeros(3, 3, n_tracers)
 
         for (i, tr) in enumerate(tracers)
             positions_out[:, i] .= tr.positions[k]
@@ -440,15 +444,17 @@ function _write_paraview(tracers, vtk_prefix, n_saved, get_time)
             m_indices[i]         = misorientation_index(ori, orthorhombic)
             F                    = tr.deformation_gradient
             strains[i]           = sqrt(maximum(svdvals(F * F'))) - 1
+            def_grads[:, :, i]  .= F
         end
 
         fname = "$(vtk_prefix)_$(lpad(k-1, 4, '0'))"
         vtk   = vtk_grid(fname, positions_out,
                          MeshCell[MeshCell(VTKCellTypes.VTK_VERTEX, [i])
                                   for i in 1:n_tracers])
-        vtk["fast_axis"]     = fast_axes
-        vtk["m_index"]       = m_indices
-        vtk["finite_strain"] = strains
+        vtk["fast_axis"]            = fast_axes
+        vtk["m_index"]              = m_indices
+        vtk["finite_strain"]        = strains
+        vtk["deformation_gradient"] = def_grads
         pvd[t_k] = vtk
         vtk_save(vtk)
     end

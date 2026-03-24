@@ -1,8 +1,12 @@
 [deps]
-GLMakie = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
-LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 DRex = "d4e3b9a0-5c1a-4e2b-8f3d-6a7b8c9d0e1f"
+GLMakie = "e9467ef8-e4e7-5192-8a1a-b1aee30e663a"
+KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Metal = "dde4c033-4e86-420c-a63e-0dd931031962"
 
 [compat]
 GLMakie = "0.10, 0.11"
+KernelAbstractions = "0.9"
+Metal = "1"
 julia = "1.9"
