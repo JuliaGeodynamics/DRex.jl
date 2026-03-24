@@ -1,0 +1,7 @@
+[deps]
+DRex = "d4e3b9a0-5c1a-4e2b-8f3d-6a7b8c9d0e1f"
+Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+
+[compat]
+Documenter = "1"
+julia = "1.9"
