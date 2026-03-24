@@ -142,7 +142,8 @@ function misorientation_hist(orientations::AbstractArray{<:AbstractFloat,3}, sys
                     min_angle = angle
                 end
             end
-            bin = clamp(Int(floor(min_angle / bin_width)) + 1, 1, nbins)
+            bin = isfinite(min_angle) ?
+                clamp(floor(Int, min_angle / bin_width) + 1, 1, nbins) : 1
             counts[bin] += 1
             npairs += 1
         end
@@ -155,28 +156,29 @@ end
 
 """Quaternion from rotation matrix (scalar-last [x,y,z,w] convention)."""
 function _rotation_matrix_to_quat(R::AbstractMatrix)
-    # Use the Shepperd method
+    # Use the Shepperd method. Clamp sqrt arguments to ≥ 0 to guard against
+    # slightly non-orthogonal matrices (e.g. from Float32 accumulation).
     t = tr(R)
     if t > 0
-        s = 0.5 / sqrt(t + 1.0)
+        s = 0.5 / sqrt(max(0.0, t + 1.0))
         w = 0.25 / s
         x = (R[3,2] - R[2,3]) * s
         y = (R[1,3] - R[3,1]) * s
         z = (R[2,1] - R[1,2]) * s
     elseif R[1,1] > R[2,2] && R[1,1] > R[3,3]
-        s = 2.0 * sqrt(1.0 + R[1,1] - R[2,2] - R[3,3])
+        s = 2.0 * sqrt(max(0.0, 1.0 + R[1,1] - R[2,2] - R[3,3]))
         w = (R[3,2] - R[2,3]) / s
         x = 0.25 * s
         y = (R[1,2] + R[2,1]) / s
         z = (R[1,3] + R[3,1]) / s
     elseif R[2,2] > R[3,3]
-        s = 2.0 * sqrt(1.0 + R[2,2] - R[1,1] - R[3,3])
+        s = 2.0 * sqrt(max(0.0, 1.0 + R[2,2] - R[1,1] - R[3,3]))
         w = (R[1,3] - R[3,1]) / s
         x = (R[1,2] + R[2,1]) / s
         y = 0.25 * s
         z = (R[2,3] + R[3,2]) / s
     else
-        s = 2.0 * sqrt(1.0 + R[3,3] - R[1,1] - R[2,2])
+        s = 2.0 * sqrt(max(0.0, 1.0 + R[3,3] - R[1,1] - R[2,2]))
         w = (R[2,1] - R[1,2]) / s
         x = (R[1,3] + R[3,1]) / s
         y = (R[2,3] + R[3,2]) / s
