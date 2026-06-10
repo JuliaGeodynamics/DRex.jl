@@ -39,6 +39,9 @@ DRex.jl was developed by translating PyDRex (Bilton et al., 2025) to Julia, incl
 
 - Bilton, L., Duvernay, T., Davies, D.R., Eakin, C.M., 2025. PyDRex: predicting crystallographic preferred orientation in peridotites under steady-state and time-dependent strain. *Geophysical Journal International* 241, 35–57. <https://doi.org/10.1093/gji/ggaf026>
 
+And please also cite the oroginal DREX paper:
+- Kaminski, É. & Ribe, N.M. (2001). A kinematic model for recrystallization and texture development in olivine polycrystals. *Earth and Planetary Science Letters*, 189(3-4), 253–267.
+
 As there are no new scientific features compared to the Python version, we do not plan a separate publication. You can cite the Julia package itself from Zenodo:
 
 - Kaus, B.J.P., 2025. DRex.jl: A Julia package for simulating crystallographic preferred orientation (CPO) evolution (v0.1.0). Zenodo. <https://doi.org/10.5281/zenodo.19110048>
