@@ -132,12 +132,16 @@ end
 # ── Plot ──────────────────────────────────────────────────────────────────────
 # Crameri's "berlin" scientific colour map (as used in the paper). Makie ships
 # the Crameri maps, accessible by name.
-const BERLIN = :berlin
+const BERLIN  = :berlin
+const CMIN     = 0.0      # fixed colour range, as in the paper
+const CMAX     = 3.5
+const CLEVELS  = range(CMIN, CMAX; length = 24)
 
 function draw_polefigure!(ax, xs, ys, dens)
-    cmax = maximum(filter(isfinite, dens))
-    levels = range(0, max(cmax, 1.0); length = 24)
-    contourf!(ax, xs, ys, dens; levels = levels, colormap = BERLIN, extendhigh = :auto)
+    # Fixed level set 0–CMAX fixes the colour range for filled contours;
+    # densities above CMAX are clamped to the top colour (extendhigh).
+    contourf!(ax, xs, ys, dens;
+              levels = CLEVELS, colormap = BERLIN, extendhigh = :auto)
     θs = range(0, 2π; length = 361)
     lines!(ax, cos.(θs), sin.(θs); color = :black, linewidth = 1.2)
     lines!(ax, [-1, 1], [0, 0]; color = (:white, 0.5), linewidth = 0.6)
@@ -145,10 +149,10 @@ function draw_polefigure!(ax, xs, ys, dens)
     hidedecorations!(ax); hidespines!(ax)
     ax.aspect = DataAspect()
     limits!(ax, -1.15, 1.15, -1.15, 1.15)
-    return cmax
+    return maximum(filter(isfinite, dens))
 end
 
-fig = Figure(; size = (920, 640))
+fig = Figure(; size = (1040, 640))
 rowlabels = ["(a) λ = 0", "(b) λ = 2.6"]
 for (ri, st) in enumerate(states)
     for (ci, (label, row)) in enumerate(AXES)
@@ -161,8 +165,13 @@ for (ri, st) in enumerate(states)
         end
         @printf("  panel λ=%.1f %s : max density = %.2f MUD\n", LAMBDAS[ri], label, cmax)
     end
+    # One colorbar per row (fixed 0–3.5 range), matching the paper layout.
+    Colorbar(fig[ri, length(AXES) + 1];
+             colormap = BERLIN, colorrange = (CMIN, CMAX),
+             label = "density (mud)",
+             ticks = 0:0.5:CMAX, height = Relative(0.85))
 end
-Label(fig[0, 1:3], "ODFTEX pure shear, τ = $(TAU_MAX) — extension axis horizontal";
+Label(fig[0, 1:length(AXES)], "ODFTEX pure shear, τ = $(TAU_MAX) — extension axis horizontal";
       fontsize = 16, font = :bold)
 
 outfile = joinpath(@__DIR__, "odftex_fig3_pureshear.png")
