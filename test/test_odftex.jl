@@ -7,7 +7,8 @@ using DRex: ODFState, init_odf, odftex_step!, odftex_kinematics,
             euler_to_dircos, dircos_to_euler, psdot_calc_general,
             integral_drx, strain_rate_scale,
             odf_box_weights, sample_orientations, odf_mean_axis,
-            odf_misorientation_index, misorientation_index, orthorhombic
+            odf_misorientation_index, misorientation_index, orthorhombic,
+            odf_polefigure_density, fse_long_axis
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Euler ↔ direction-cosine conversions
@@ -181,4 +182,90 @@ end
     â = odf_mean_axis(state, "a")
     @test isapprox(norm(â), 1.0; atol = 1e-10)
     @test abs(â[3]) < 0.2   # [100] concentrates near the shear plane, not out of it
+end
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Pole-figure density helper (used by the paper-figure examples)
+# ──────────────────────────────────────────────────────────────────────────────
+
+@testset "ODFTEX pole-figure density" begin
+    # A uniform ODF must project to a flat field at ~1 MUD everywhere.
+    st = init_odf(40; λ = 0.0)
+    xs, ys, dens = odf_polefigure_density(st, 3; ngrid = 121)
+    finite = filter(isfinite, dens)
+    @test isapprox(sum(finite) / length(finite), 1.0; atol = 0.02)   # mean ≈ 1 MUD
+    @test maximum(finite) < 1.4                                       # no spurious peaks
+    # Out-of-disk corners are NaN.
+    @test isnan(dens[1, 1])
+    @test_throws ArgumentError odf_polefigure_density(st, 4)
+end
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Figure-reproduction physics (asserts what the example scripts plot)
+# ──────────────────────────────────────────────────────────────────────────────
+
+"""Scatter-matrix eigenvalues of the `row`-th crystallographic axis (a/b/c)."""
+function _axis_scatter_eigs(state, row; rng = MersenneTwister(1), n = 40000)
+    ori = sample_orientations(state, n; rng = rng)
+    S = zeros(3, 3)
+    for g in 1:size(ori, 1)
+        u = ori[g, row, :]
+        S .+= u * transpose(u)
+    end
+    return sort(eigvals(Symmetric(S ./ size(ori, 1))))
+end
+
+@testset "Fig. 3 physics — pure shear, [001] isotropy vs drx" begin
+    # Pure shear in x–y plane (Γ=0, ė₀=1), τ=0.7.
+    vg = [1.0 0.0 0.0; 0.0 -1.0 0.0; 0.0 0.0 0.0]
+    runto(λ) = begin
+        st = init_odf(60; λ = λ)
+        for _ in 1:40
+            odftex_step!(st, vg, 0.7 / 40)
+        end
+        st
+    end
+
+    # λ=0: [001] (b×n axis) is isotropic ⇒ scatter eigenvalues ≈ [1/3,1/3,1/3];
+    # [100]/[010] are anisotropic. This is the paper's exact single-slip result.
+    ev_c0 = _axis_scatter_eigs(runto(0.0), 3)
+    @test all(isapprox.(ev_c0, 1/3; atol = 0.02))
+    ev_a0 = _axis_scatter_eigs(runto(0.0), 1)
+    @test (ev_a0[3] - ev_a0[1]) > 0.15            # clearly anisotropic
+
+    # λ=2.6: recrystallisation makes [001] anisotropic.
+    ev_c1 = _axis_scatter_eigs(runto(2.6), 3)
+    @test (ev_c1[3] - ev_c1[1]) > 0.1
+end
+
+@testset "Fig. 4 physics — simple shear, [100] follows FSE" begin
+    # Sinistral simple shear (Γ=1, ė₀=1), λ=0. L[1,2] = -2.
+    vg = [0.0 -2.0 0.0; 0.0 0.0 0.0; 0.0 0.0 0.0]
+    for τ in (0.5, 1.0)
+        st = init_odf(60; λ = 0.0)
+        for _ in 1:40
+            odftex_step!(st, vg, τ / 40)
+        end
+
+        # FSE long axis from F = exp(L τ).
+        fse = fse_long_axis(exp(vg * τ))
+        fse_ang = atand(fse[2], fse[1])
+
+        # [100] mean direction (sampled).
+        â = odf_mean_axis(st, "a")
+        a_ang = atand(â[2], â[1])
+
+        # The [100] peak follows the FSE long axis (McKenzie finite-strain
+        # hypothesis when recrystallisation is off): within a few degrees.
+        @test abs(a_ang - fse_ang) < 6.0
+
+        # FSE rotates toward the shear plane (decreasing |angle|) with strain;
+        # both lie in the fourth quadrant (negative angle) for sinistral shear.
+        @test fse_ang < 0
+        @test a_ang < 0
+
+        # λ=0 ⇒ [001] stays isotropic.
+        ev_c = _axis_scatter_eigs(st, 3)
+        @test all(isapprox.(ev_c, 1/3; atol = 0.03))
+    end
 end

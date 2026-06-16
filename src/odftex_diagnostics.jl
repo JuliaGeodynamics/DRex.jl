@@ -165,3 +165,108 @@ function odf_misorientation_index(state::ODFState{T};
     ori = sample_orientations(state, n; s = s, rng = rng)
     return misorientation_index(ori, system)
 end
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Pole-figure density (Lambert equal-area, multiples of uniform) — plotting-free
+# ──────────────────────────────────────────────────────────────────────────────
+
+"""
+    odf_polefigure_density(state, row; s=1, ngrid=161, σ=0.065)
+        -> (xs, ys, density)
+
+Smooth Lambert equal-area pole-figure density for the crystallographic axis in
+`row` (1=a/[100], 2=b/[010], 3=c/[001]), in multiples of a uniform distribution
+(MUD). Each ODF box's axis direction is projected to the disk (antipodally folded
+to the upper hemisphere) and forward-splatted with a 2-D Gaussian of width `σ`.
+
+Two pole-figure singularities are handled so a uniform ODF projects to a flat
+field everywhere: near-rim (equator) kernel mass that would spill outside the
+disk is re-entered at the antipodal azimuth, and near-pole axes are spread around
+a small azimuthal ring. `density` is `NaN` outside the unit disk. `s` selects the
+slip-system frame (1=olivine master, 4=orthopyroxene).
+
+This is a plotting-free numeric routine; pass the result to any contour plotter.
+"""
+function odf_polefigure_density(state::ODFState{T}, row::Int;
+                                s::Int = 1, ngrid::Int = 161,
+                                σ::Real = 0.065) where {T<:AbstractFloat}
+    1 <= row <= 3 || throw(ArgumentError("row must be 1, 2 or 3"))
+    _, ph2, th2, ps2 = eulerian_transform(state, s)
+    w = vec(odf_box_weights(state))
+
+    σf = float(σ)
+    xs = range(-1.0, 1.0; length = ngrid)
+    ys = range(-1.0, 1.0; length = ngrid)
+    h  = step(xs)
+    acc = zeros(ngrid, ngrid)
+    half = ceil(Int, 3σf / h)
+    inv2σ2 = 1 / (2σf^2)
+    gnorm  = 1 / (2π * σf^2)
+
+    splat! = (X, Y, wk) -> begin
+        ix = clamp(round(Int, (X + 1) / h) + 1, 1, ngrid)
+        iy = clamp(round(Int, (Y + 1) / h) + 1, 1, ngrid)
+        @inbounds for jx in max(1, ix-half):min(ngrid, ix+half)
+            dx = xs[jx] - X
+            for jy in max(1, iy-half):min(ngrid, iy+half)
+                dy = ys[jy] - Y
+                acc[jx, jy] += wk * gnorm * exp(-(dx^2 + dy^2) * inv2σ2)
+            end
+        end
+    end
+
+    @inbounds for I in eachindex(ph2)
+        a = euler_to_dircos(ph2[I], th2[I], ps2[I])
+        vx, vy, vz = a[row, 1], a[row, 2], a[row, 3]
+        if vz < 0
+            vx, vy, vz = -vx, -vy, -vz
+        end
+        r2 = vx^2 + vy^2
+        wk = w[I]
+
+        if r2 < 1e-10
+            Rp = sqrt(max(0.0, 1 - vz))
+            nring = 12
+            for t in 0:(nring-1)
+                ang = 2π * t / nring
+                splat!(Rp * cos(ang), Rp * sin(ang), wk / nring)
+            end
+            continue
+        end
+
+        pf = sqrt((1 - vz) / r2)
+        X, Y = pf * vx, pf * vy
+        splat!(X, Y, wk)
+
+        R2 = X^2 + Y^2
+        if R2 > (1 - 3σf)^2
+            rscale = sqrt(max(0.0, 2 - R2)) / sqrt(max(R2, 1e-30))
+            splat!(-X * rscale, -Y * rscale, wk)
+        end
+    end
+
+    dens = fill(NaN, ngrid, ngrid)
+    ref = 1.0 / π                  # total mass ≈ 1 (Σ w = 1), disk area π
+    @inbounds for jx in 1:ngrid, jy in 1:ngrid
+        (xs[jx]^2 + ys[jy]^2) > 1.0 && continue
+        dens[jx, jy] = acc[jx, jy] / ref
+    end
+    return collect(xs), collect(ys), dens
+end
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Finite strain ellipsoid
+# ──────────────────────────────────────────────────────────────────────────────
+
+"""
+    fse_long_axis(deformation_gradient) -> SVector{3}
+
+Unit long axis of the finite strain ellipsoid for a deformation gradient `F`:
+the leading eigenvector of the left Cauchy–Green tensor B = F Fᵀ.
+"""
+function fse_long_axis(F::AbstractMatrix{T}) where {T<:AbstractFloat}
+    B = F * transpose(F)
+    _, vecs = eigen(Symmetric(Matrix(B)))
+    v = vecs[:, end]
+    return SVector{3,T}(v[1], v[2], v[3]) ./ norm(v)
+end
