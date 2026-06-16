@@ -1,0 +1,12 @@
+0.0, -2.0,  0.0   ** vg(1,j)
+0.0,  0.0,  0.0   ** vg(2,j)
+0.0,  0.0,  0.0   ** vg(3,j)
+1   **  s_ol
+0.0  ** frac_opx
+2.6  ** rlam    
+1.0, 40  ** taumax, nint
+0  ** ilimit
+90   ** nbox
+1    **  ideg
+f_ol.out
+f_opx.out
