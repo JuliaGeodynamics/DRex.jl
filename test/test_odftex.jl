@@ -1,10 +1,13 @@
 using Test
 using LinearAlgebra
 using StaticArrays
+using Random
 using DRex
 using DRex: ODFState, init_odf, odftex_step!, odftex_kinematics,
             euler_to_dircos, dircos_to_euler, psdot_calc_general,
-            integral_drx, strain_rate_scale
+            integral_drx, strain_rate_scale,
+            odf_box_weights, sample_orientations, odf_mean_axis,
+            odf_misorientation_index, misorientation_index, orthorhombic
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Euler ↔ direction-cosine conversions
@@ -127,4 +130,55 @@ end
     @test isapprox(maximum(f_jl), maximum(f_ref); rtol = 2e-2)
     @test f_ref[argmax(f_jl)] ≥ 0.99 * maximum(f_ref)
     @test f_jl[argmax(f_ref)] ≥ 0.99 * maximum(f_jl)
+end
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Diagnostics: box weights, sampler, native mean axis / M-index
+# ──────────────────────────────────────────────────────────────────────────────
+
+@testset "ODFTEX box weights" begin
+    # Uniform ODF ⇒ all box weights equal and summing to 1.
+    state = init_odf(20; λ = 0.0)
+    w = odf_box_weights(state)
+    @test isapprox(sum(w), 1.0; atol = 1e-12)
+    @test isapprox(minimum(w), maximum(w); rtol = 1e-12)
+end
+
+@testset "ODFTEX sampler" begin
+    state = init_odf(20; λ = 0.0)
+    rng = MersenneTwister(123)
+    ori = sample_orientations(state, 2000; rng = rng)
+    @test size(ori) == (2000, 3, 3)
+    # Every sampled matrix is a proper rotation.
+    for g in (1, 500, 1234, 2000)
+        a = ori[g, :, :]
+        @test isapprox(a * a', I; atol = 1e-10)
+        @test isapprox(det(a), 1.0; atol = 1e-10)
+    end
+    # A uniform ODF should give a near-isotropic discrete sample (small M-index).
+    @test misorientation_index(ori, orthorhombic) < 0.1
+end
+
+@testset "ODFTEX native diagnostics on simple-shear texture" begin
+    nbox = 30
+    state = init_odf(nbox; λ = 2.6, frac_opx = 0.0, s_ol = 1, ilimit = 0)
+    vg = [0.0 -2.0 0.0; 0.0 0.0 0.0; 0.0 0.0 0.0]
+    sr, _, _ = odftex_kinematics(vg)
+    vg ./= strain_rate_scale(sr)
+    dt = 1.0 / 40
+    for _ in 1:40
+        odftex_step!(state, vg, dt)
+    end
+
+    # The deformed texture is anisotropic: M-index well above the isotropic case.
+    rng = MersenneTwister(7)
+    m_def = odf_misorientation_index(state; n = 20000, rng = rng)
+    m_iso = odf_misorientation_index(init_odf(nbox; λ = 0.0); n = 20000, rng = MersenneTwister(7))
+    @test m_def > m_iso
+    @test m_def > 0.05
+
+    # The a-axis mean direction is a unit vector lying in the shear (x–y) plane.
+    â = odf_mean_axis(state, "a")
+    @test isapprox(norm(â), 1.0; atol = 1e-10)
+    @test abs(â[3]) < 0.2   # [100] concentrates near the shear plane, not out of it
 end
