@@ -73,7 +73,7 @@ export euler_to_dircos, dircos_to_euler, psdot_calc_general
 export integral_drx, eulerian_transform, strain_rate_scale
 export odf_box_weights, sample_orientations, odf_mean_axis,
        odf_pole_figure, odf_misorientation_index,
-       odf_polefigure_density, fse_long_axis
+       odf_polefigure_density, fse_long_axis, odf_expectation_angle
 
 # Geometry
 export LatticeSystem, orthorhombic, monoclinic, triclinic, tetragonal, hexagonal

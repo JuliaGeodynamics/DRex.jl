@@ -270,3 +270,46 @@ function fse_long_axis(F::AbstractMatrix{T}) where {T<:AbstractFloat}
     v = vecs[:, end]
     return SVector{3,T}(v[1], v[2], v[3]) ./ norm(v)
 end
+
+"""
+    odf_expectation_angle(state, axis_row; plane_dir1=1, plane_dir2=2, s=1) -> Float64
+
+ODF-weighted **expectation value** of the in-plane orientation angle (degrees, in
+[0,90]) of a crystallographic axis relative to a reference direction within a
+deformation plane. This is the quantity plotted by the paper's Fig. 6
+("expectation values of the [100] orientation"): the axis is projected into the
+plane spanned by Cartesian axes `plane_dir1`/`plane_dir2`, and the acute angle of
+that projection from `plane_dir1` is averaged over the ODF —
+`∫ |angle(g)| f(g) dg / ∫ f(g) dg` — rather than taking the dominant axis
+(`odf_mean_axis`).
+
+For the paper's simple-shear setup the deformation plane is X–Y (`plane_dir1=1`,
+`plane_dir2=2`) and `plane_dir1` (X) is the shear direction, so the reported
+angle is the [100] orientation relative to the shear plane.
+
+- `axis_row` — 1=a/[100], 2=b/[010], 3=c/[001]
+- `s`        — slip-system frame (1=olivine master)
+
+For an isotropic ODF the in-plane expectation angle is 45° (the mean acute angle
+of uniformly distributed in-plane axes from a reference direction).
+"""
+function odf_expectation_angle(state::ODFState{T}, axis_row::Int;
+                               plane_dir1::Int = 1, plane_dir2::Int = 2,
+                               s::Int = 1) where {T<:AbstractFloat}
+    1 <= axis_row <= 3 || throw(ArgumentError("axis_row must be 1, 2 or 3"))
+    _, ph2, th2, ps2 = eulerian_transform(state, s)
+    w = vec(odf_box_weights(state))
+
+    num = zero(T); den = zero(T)
+    @inbounds for I in eachindex(ph2)
+        a = euler_to_dircos(ph2[I], th2[I], ps2[I])
+        # in-plane projection components (axial: fold to acute angle in [0,90])
+        p1 = a[axis_row, plane_dir1]
+        p2 = a[axis_row, plane_dir2]
+        ang = abs(atand(p2, p1))
+        ang > 90 && (ang = 180 - ang)
+        num += w[I] * ang
+        den += w[I]
+    end
+    return den > 0 ? num / den : T(NaN)
+end

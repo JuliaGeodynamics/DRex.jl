@@ -269,3 +269,78 @@ end
         @test all(isapprox.(ev_c, 1/3; atol = 0.03))
     end
 end
+
+@testset "Fig. 5 physics — MIT23 simple shear, λ=2.6, γ=140%" begin
+    # Sinistral simple shear (Γ=1, ė₀=1), λ=2.6, τ=0.7 (γ=1.4). This is the
+    # Fortran reference case validated element-wise elsewhere; here we assert the
+    # geometry of the three reference directions and the M-index range.
+    vg = [0.0 -2.0 0.0; 0.0 0.0 0.0; 0.0 0.0 0.0]
+    τ  = 0.7
+
+    # Shear plane normal is Y ⇒ the plane is the horizontal (X) axis: 0°.
+    # Max instantaneous extension = leading strain-rate eigenvector at ±45°.
+    sr, _, _ = odftex_kinematics(vg)
+    _, vecs = eigen(Symmetric(Matrix(sr)))
+    ext = vecs[:, end]
+    ext_ang = mod(atand(ext[2], ext[1]), 180.0)        # axis ⇒ mod 180
+    @test isapprox(ext_ang, 135.0; atol = 1e-6)         # i.e. −45° as an axis
+
+    # FSE long axis lies strictly between the shear plane (0°) and the
+    # max-extension direction (−45°), rotated toward the shear plane.
+    fse = fse_long_axis(exp(vg * τ))
+    fse_ang = atand(fse[2], fse[1])
+    @test -45.0 < fse_ang < 0.0
+    @test fse_ang ≈ -27.5 atol = 1.0
+
+    # M-index in the recrystallised A-type range (paper reports ≈0.115 native /
+    # our sampled estimator runs a touch higher; both clearly anisotropic).
+    st = init_odf(60; λ = 2.6)
+    for _ in 1:40
+        odftex_step!(st, vg, τ / 40)
+    end
+    m = odf_misorientation_index(st; n = 40000, rng = MersenneTwister(1))
+    @test 0.08 < m < 0.20
+
+    # Recrystallisation makes [001] anisotropic (vs the isotropic λ=0 case).
+    ev_c = _axis_scatter_eigs(st, 3)
+    @test (ev_c[3] - ev_c[1]) > 0.05
+end
+
+@testset "Fig. 6 physics — [100] expectation orientation vs FSE" begin
+    # Simple shear (Γ=1). The paper plots the EXPECTATION value of the in-plane
+    # [100] orientation relative to the shear plane (odf_expectation_angle), not
+    # the dominant axis. For an isotropic ODF this is 45°.
+    vg = [0.0 -2.0 0.0; 0.0 0.0 0.0; 0.0 0.0 0.0]
+
+    fse_angle(γ) = (v = fse_long_axis(exp(vg * (γ / 2)));
+                    a = abs(atand(v[2], v[1])); a > 90 ? 180 - a : a)
+
+    function a_angle(λ, γ)
+        τ = γ / 2
+        st = init_odf(40; λ = λ)
+        for _ in 1:40
+            odftex_step!(st, vg, τ / 40)
+        end
+        return odf_expectation_angle(st, 1; plane_dir1 = 1, plane_dir2 = 2)
+    end
+
+    # Isotropic in-plane expectation angle is exactly 45°.
+    @test isapprox(odf_expectation_angle(init_odf(30; λ = 0.0), 1), 45.0; atol = 1e-6)
+
+    # Low strain: both recrystallising curves sit ABOVE the FSE (the [100]
+    # distribution stays spread near the instantaneous extension direction while
+    # the FSE has already begun rotating toward the shear plane). This is the
+    # paper's low-strain behaviour.
+    for γ in (0.1, 0.2, 0.3)
+        f = fse_angle(γ)
+        @test a_angle(2.6, γ) > f
+        @test a_angle(10.0, γ) > f
+    end
+
+    # The λ=10 curve crosses below the FSE (rotates faster) by moderate strain…
+    @test a_angle(10.0, 1.0) < fse_angle(1.0)
+    # …and the ordering at large strain is FSE > λ=2.6 > λ=10.
+    @test fse_angle(2.0) > a_angle(2.6, 2.0) > a_angle(10.0, 2.0)
+    # λ=10 reaches close to the shear plane at large strain.
+    @test a_angle(10.0, 2.0) < 8.0
+end
