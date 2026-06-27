@@ -344,3 +344,51 @@ end
     # λ=10 reaches close to the shear plane at large strain.
     @test a_angle(10.0, 2.0) < 8.0
 end
+
+@testset "Fig. 7 physics — uniaxial compression, λ=2.6, 58% shortening" begin
+    # Axisymmetric compression along Z: L = diag(ε̇, ε̇, −2ε̇). Vorticity 0, and
+    # the strain-rate scale is √3 ε̇. 58% shortening ⇒ ε̇ t = −ln(0.42)/2, so
+    # τ = ė₀ t = √3 · ε̇ t ≈ 0.751.
+    vg = [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 -2.0]
+    sr, om, _ = odftex_kinematics(vg)
+    e0 = strain_rate_scale(sr)
+    @test isapprox(e0, sqrt(3); atol = 1e-12)
+    @test all(isapprox.(om, 0.0; atol = 1e-12))        # Γ = 0 (no vorticity)
+
+    τ = e0 * (-log(1 - 0.58) / 2)
+    st = init_odf(60; λ = 2.6)
+    for _ in 1:40
+        odftex_step!(st, vg ./ e0, τ / 40)
+    end
+
+    # [010] concentrates along the compression axis (Z): its dominant scatter
+    # eigenvector is ±Z and it is the strongest single-axis concentration.
+    function scatter(row)
+        ori = sample_orientations(st, 40000; rng = MersenneTwister(1))
+        S = zeros(3, 3)
+        for g in 1:size(ori, 1)
+            u = ori[g, row, :]
+            S .+= u * transpose(u)
+        end
+        return Symmetric(S ./ size(ori, 1))
+    end
+
+    S010 = scatter(2)
+    ev010 = sort(eigvals(S010))
+    _, vv = eigen(S010)
+    dom010 = abs.(vv[:, end])
+    @test dom010[3] > 0.95                  # [010] dominant axis ≈ Z (compression)
+    @test ev010[3] > 0.5                    # strong central concentration
+
+    # [100] and [001] form girdles in the plane ⟂ compression: their dominant
+    # axes lie in X–Y (small Z component), and the [001] girdle is at least as
+    # concentrated as the [100] girdle (paper: [001] stronger).
+    ev100 = sort(eigvals(scatter(1)))
+    ev001 = sort(eigvals(scatter(3)))
+    @test ev100[1] < 0.30 && ev001[1] < 0.30          # girdle ⇒ small minimum eig
+    @test ev001[3] ≥ ev100[3] - 0.02                  # [001] ≳ [100]
+
+    # M-index in the recrystallised range (paper native 12³ = 0.0984).
+    m = odf_misorientation_index(st; n = 40000, rng = MersenneTwister(1))
+    @test 0.06 < m < 0.16
+end
