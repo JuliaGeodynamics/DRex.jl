@@ -74,6 +74,10 @@ DRex.jl was developed by translating PyDRex (Bilton et al., 2025) to Julia, incl
 
 - Bilton, L., Duvernay, T., Davies, D.R., Eakin, C.M., 2025. PyDRex: predicting crystallographic preferred orientation in peridotites under steady-state and time-dependent strain. *Geophysical Journal International* 241, 35–57. <https://doi.org/10.1093/gji/ggaf026>
 
+And please also cite the original D-Rex paper:
+
+- Kaminski, É. & Ribe, N.M. (2001). A kinematic model for recrystallization and texture development in olivine polycrystals. *Earth and Planetary Science Letters*, 189(3-4), 253–267.
+
 If you use the ODFTEX model, please cite:
 
 - Ribe, N.M., Faccenda, M., VanderBeek, B., 2026. ODFTEX: a continuum model for texture evolution with dynamic recrystallization. *Geophysical Journal International* 246, 1–19. <https://doi.org/10.1093/gji/ggag170>
