@@ -2,8 +2,8 @@ using Test
 using LinearAlgebra
 using Statistics
 using KernelAbstractions
-using DRex
-using DRex: corner_2d, get_pathline, strain_increment, update_orientations!,
+using MantleFabric
+using MantleFabric: corner_2d, get_pathline, strain_increment, update_orientations!,
               run_pathlines_batch!, resample_orientations, misorientation_index
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -64,7 +64,7 @@ end
 
     f_velocity, f_velocity_grad = corner_2d("X", "Z", plate_speed)
 
-    params = DRex.default_params()
+    params = MantleFabric.default_params()
     params[:number_of_grains] = 300   # small for speed
     params[:phase_assemblage] = [olivine, enstatite]
     params[:phase_fractions]  = [0.7, 0.3]
@@ -143,7 +143,7 @@ end
 
     f_velocity, f_velocity_grad = corner_2d("X", "Z", plate_speed)
 
-    params = DRex.default_params()
+    params = MantleFabric.default_params()
     params[:number_of_grains] = 200
     params[:phase_assemblage] = [olivine, enstatite]
     params[:phase_fractions]  = [0.7, 0.3]

@@ -9,7 +9,7 @@
 
 ## Multi-core CPU
 
-DRex parallelises across tracers using `Threads.@threads`. Launch Julia with multiple
+MantleFabric parallelises across tracers using `Threads.@threads`. Launch Julia with multiple
 threads to take advantage of all available cores:
 
 ```bash

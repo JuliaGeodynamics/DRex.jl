@@ -1,6 +1,6 @@
 # Examples
 
-All example scripts live in [`examples/standalone/`](https://github.com/JuliaGeodynamics/DRex.jl/tree/main/examples/standalone) and reproduce figures from Bilton et al. (2025) for D-Rex, and from Ribe, Faccenda & VanderBeek (2026) for ODFTEX (see [ODFTEX paper figures](@ref) below). They require `CairoMakie` for plotting, which is available through the bundled project environment:
+All example scripts live in [`examples/standalone/`](https://github.com/JuliaGeodynamics/MantleFabric.jl/tree/main/examples/standalone) and reproduce figures from Bilton et al. (2025) for D-Rex, and from Ribe, Faccenda & VanderBeek (2026) for ODFTEX (see [ODFTEX paper figures](@ref) below). They require `CairoMakie` for plotting, which is available through the bundled project environment:
 
 ```bash
 cd examples/standalone
@@ -16,7 +16,7 @@ The `-t auto` flag activates all available CPU cores.
 Theoretical and numerical misfit between the olivine [100] a-axis angle θ and the finite strain ellipsoid (FSE) long-axis angle Φ in simple shear, as a function of accumulated strain ε.
 
 Demonstrates:
-- Analytical predictions (eqs. 24 and 29 of the paper) vs. DRex with 1 grain and M\*=0
+- Analytical predictions (eqs. 24 and 29 of the paper) vs. D-Rex with 1 grain and M\*=0
 - Use of [`finite_strain`](@ref) and [`smallest_angle`](@ref)
 
 ![Fig 4](assets/fig4_lag_angle.png)
@@ -113,7 +113,7 @@ Model panel for the MIT23 experiment (λ = 2.6). Lines on the [100] panel: shear
 
 **Compared with the paper:** the pattern matches panel (b) of the paper: [100] peaks close to the shear plane, a [010] maximum normal to it, and a [001] maximum in the centre that is absent without recrystallisation. Texture strength agrees to within 10 %:
 
-| Euler boxes | M-index, paper | M-index, DRex.jl |
+| Euler boxes | M-index, paper | M-index, MantleFabric.jl |
 |---|---|---|
 | 12³ | 0.115 | 0.122–0.126 |
 | 60³ | 0.133 | 0.127–0.129 |
@@ -144,7 +144,7 @@ Harzburgite aggregates (olivine:orthopyroxene = 70:30) on a 5 km grid are traced
 
 **Compared with the paper:** the pattern is the same: horizontal fast directions and ξ > 1 along the top and bottom, vertical fast directions and ξ < 1 in the centre and at the sides, and fast directions that follow the streamlines. The agreement between the two models is close to what the paper reports:
 
-| ODFTEX against D-Rex | Paper | DRex.jl |
+| ODFTEX against D-Rex | Paper | MantleFabric.jl |
 |---|---|---|
 | Mean difference in radial anisotropy ξ | < 0.02 | 0.028 |
 | Mean difference in P-wave fast direction | < 10° | 3.1° |

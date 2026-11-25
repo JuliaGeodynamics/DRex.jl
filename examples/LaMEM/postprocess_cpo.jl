@@ -18,11 +18,11 @@
 #   Useful filters: Glyph (Arrow by 'fast_axis', scale by 'm_index'),
 #                   Threshold on 'm_index'
 #
-# Units: DRexLaMEMExt converts LaMEM output to consistent km / Myr / (1/Myr).
+# Units: MantleFabricLaMEMExt converts LaMEM output to consistent km / Myr / (1/Myr).
 =#
 
-using LaMEM, GeophysicalModelGenerator   # triggers DRexLaMEMExt automatically
-using DRex
+using LaMEM, GeophysicalModelGenerator   # triggers MantleFabricLaMEMExt automatically
+using MantleFabric
 using CairoMakie
 using LinearAlgebra
 
@@ -47,7 +47,7 @@ target_positions = let
     pts
 end
 
-# DRex parameters (edit as needed)
+# D-Rex parameters (edit as needed)
 drex_params = let p = default_params()
     p[:phase_assemblage] = [olivine, enstatite]
     p[:phase_fractions]  = [0.7, 0.3]

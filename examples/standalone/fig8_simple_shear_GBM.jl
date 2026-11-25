@@ -17,7 +17,7 @@
 
 push!(LOAD_PATH, "@v#.#")  # stacked env for CairoMakie
 
-using DRex
+using MantleFabric
 using LinearAlgebra
 using Statistics: mean, std
 using CairoMakie
@@ -97,7 +97,7 @@ end
 # ── Helper: extract CPO angles (hex axis vs shear direction) per timestep ────
 function cpo_angles(mineral::Mineral)
     st = StiffnessTensors()
-    C_ref = DRex.get_stiffness(st, mineral.phase)
+    C_ref = MantleFabric.get_stiffness(st, mineral.phase)
     C_tensor = voigt_to_elastic_tensor(C_ref)
     n_steps = length(mineral.orientations)
     voigt_mats = [voigt_average_step(mineral, s, C_tensor) for s in 1:n_steps]

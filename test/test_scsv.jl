@@ -1,6 +1,6 @@
 using Test
-using DRex
-using DRex: SCSVError, read_scsv, save_scsv, write_scsv_header, scsv_data
+using MantleFabric
+using MantleFabric: SCSVError, read_scsv, save_scsv, write_scsv_header, scsv_data
 
 # ═════════════════════════════════════════════════════════════════════════════
 # Schema validation

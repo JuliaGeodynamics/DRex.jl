@@ -23,7 +23,7 @@
 
 push!(LOAD_PATH, "@v#.#")
 
-using DRex
+using MantleFabric
 using LinearAlgebra
 using Printf
 
@@ -35,7 +35,7 @@ catch
     :gl
 end
 
-using DRex: init_odf, odftex_step!, odftex_kinematics, strain_rate_scale,
+using MantleFabric: init_odf, odftex_step!, odftex_kinematics, strain_rate_scale,
             odf_polefigure_density, odf_misorientation_index
 using Random: MersenneTwister
 
@@ -72,7 +72,7 @@ for _ in 1:N_STEPS
 end
 m_index = odf_misorientation_index(state; n = 40000, rng = MersenneTwister(1))
 @printf("  ODF integral = %.4f,  M-index (sampled) = %.4f  (paper native 12³ = 0.0984)\n",
-        DRex.integral_drx(state), m_index)
+        MantleFabric.integral_drx(state), m_index)
 
 # ── Plot ──────────────────────────────────────────────────────────────────────
 fig = Figure(; size = (1040, 380))

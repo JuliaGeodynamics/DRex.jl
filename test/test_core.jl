@@ -1,7 +1,7 @@
 using Test
 using LinearAlgebra
-using DRex
-using DRex: _get_slip_invariants, _get_deformation_rate, _get_slip_rates_olivine,
+using MantleFabric
+using MantleFabric: _get_slip_invariants, _get_deformation_rate, _get_slip_rates_olivine,
               _argsort4, _get_rotation_and_strain
 using StaticArrays
 
@@ -25,7 +25,7 @@ end
             for θ in range(0, 2π, length=360)
                 R = rotation_from_rotvec([0.0, θ, 0.0])
                 orientations = Array{T}(reshape(R, 1, 3, 3))
-                orientations_diff, fractions_diff = DRex.derivatives(
+                orientations_diff, fractions_diff = MantleFabric.derivatives(
                     matrix_dislocation,
                     enstatite,
                     enstatite_AB,
@@ -59,7 +59,7 @@ end
                 deformation_rate = _get_deformation_rate(enstatite, ori_s, slip_rates)
                 @test isapprox(Array(deformation_rate), zeros(3,3), atol=atol_frac)
 
-                orientations_diff, fractions_diff = DRex.derivatives(
+                orientations_diff, fractions_diff = MantleFabric.derivatives(
                     matrix_dislocation,
                     enstatite,
                     enstatite_AB,
@@ -107,10 +107,10 @@ end
                                             abs(slip_invariants[3]/crss[3]),
                                             abs(slip_invariants[4]/crss[4]))
                 slip_indices = _argsort4(ratios)
-                slip_system = DRex.OLIVINE_SLIP_SYSTEMS[slip_indices[4]]
+                slip_system = MantleFabric.OLIVINE_SLIP_SYSTEMS[slip_indices[4]]
                 @test slip_system == ([0,1,0], [1,0,0])
 
-                orientations_diff, fractions_diff = DRex.derivatives(
+                orientations_diff, fractions_diff = MantleFabric.derivatives(
                     matrix_dislocation,
                     olivine,
                     olivine_A,
@@ -155,10 +155,10 @@ end
                                             abs(slip_invariants[3]/crss[3]),
                                             abs(slip_invariants[4]/crss[4]))
                 slip_indices = _argsort4(ratios)
-                slip_system = DRex.OLIVINE_SLIP_SYSTEMS[slip_indices[4]]
+                slip_system = MantleFabric.OLIVINE_SLIP_SYSTEMS[slip_indices[4]]
                 @test slip_system == ([0,0,1], [1,0,0])
 
-                orientations_diff, fractions_diff = DRex.derivatives(
+                orientations_diff, fractions_diff = MantleFabric.derivatives(
                     matrix_dislocation,
                     olivine,
                     olivine_A,

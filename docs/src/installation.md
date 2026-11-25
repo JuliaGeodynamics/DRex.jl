@@ -1,23 +1,23 @@
 # Installation
 
-DRex.jl is hosted on GitHub and not yet registered in the Julia General registry. Install it directly from the repository:
+MantleFabric.jl is hosted on GitHub and not yet registered in the Julia General registry. Install it directly from the repository:
 
 ```julia
 using Pkg
-Pkg.add(url="https://github.com/JuliaGeodynamics/DRex.jl")
+Pkg.add(url="https://github.com/JuliaGeodynamics/MantleFabric.jl")
 ```
 
 Or from the package REPL (press `]`):
 
 ```
-] add https://github.com/JuliaGeodynamics/DRex.jl
+] add https://github.com/JuliaGeodynamics/MantleFabric.jl
 ```
 
 For local development (clones the repo and uses it in development mode):
 
 ```julia
 using Pkg
-Pkg.develop(url="https://github.com/JuliaGeodynamics/DRex.jl")
+Pkg.develop(url="https://github.com/JuliaGeodynamics/MantleFabric.jl")
 ```
 
 ## Dependencies
@@ -39,19 +39,19 @@ The **LaMEM extension** auto-loads when three additional packages are present in
 
 ```julia
 using LaMEM, GeophysicalModelGenerator, WriteVTK
-using DRex   # DRexLaMEMExt loads automatically
+using MantleFabric   # MantleFabricLaMEMExt loads automatically
 ```
 
 The **Metal GPU backend** requires Apple Silicon and the `Metal.jl` package:
 
 ```julia
 using Metal
-using DRex
+using MantleFabric
 ```
 
 ## Running the tests
 
 ```julia
 using Pkg
-Pkg.test("DRex")
+Pkg.test("MantleFabric")
 ```

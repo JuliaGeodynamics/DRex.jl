@@ -1,14 +1,14 @@
 using Test
 using LinearAlgebra
 using Statistics
-using DRex
-using DRex: simple_shear_2d, smallest_angle, bingham_average,
+using MantleFabric
+using MantleFabric: simple_shear_2d, smallest_angle, bingham_average,
               misorientation_index, resample_orientations
 
 # Parameters matching ParamsFraters2021 from the Python PyDRex mock module.
 # Reference: Fraters & Billen, 2021 (https://doi.org/10.1029/2021gc009846)
 function params_fraters2021(; number_of_grains=5000)
-    params = DRex.default_params()
+    params = MantleFabric.default_params()
     params[:phase_assemblage] = [olivine, enstatite]
     params[:phase_fractions] = [0.7, 0.3]
     params[:stress_exponent] = 1.5

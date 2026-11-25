@@ -1,11 +1,11 @@
-# DRex.jl
+# MantleFabric.jl
 
-[![CI](https://github.com/JuliaGeodynamics/DRex.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/JuliaGeodynamics/DRex.jl/actions/workflows/CI.yml)
+[![CI](https://github.com/JuliaGeodynamics/MantleFabric.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/JuliaGeodynamics/MantleFabric.jl/actions/workflows/CI.yml)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19110048.svg)](https://doi.org/10.5281/zenodo.19110048)
 
 A Julia package for simulating **crystallographic preferred orientation (CPO)** evolution in olivine and enstatite polycrystals during plastic deformation. It implements two models: the discrete-grain **D-Rex** model and the continuum **ODFTEX** model.
 
-DRex.jl is a Julia translation of [PyDRex](https://github.com/seismic-anisotropy/PyDRex) (Bilton et al., 2025), which itself is based on the original FORTRAN D-Rex model by Kaminski & Ribe (2001, 2004). The Julia implementation is significantly faster (>3 orders of magnitude) thanks to allocation-free inner loops via `StaticArrays.jl`, multi-core threading, and optional GPU offloading via `KernelAbstractions.jl`.
+The package was called DRex.jl until version 0.2; it was renamed when the ODFTEX model was added. Its D-Rex part is a Julia translation of [PyDRex](https://github.com/seismic-anisotropy/PyDRex) (Bilton et al., 2025), which itself is based on the original FORTRAN D-Rex model by Kaminski & Ribe (2001, 2004). The Julia implementation is significantly faster (>3 orders of magnitude) thanks to allocation-free inner loops via `StaticArrays.jl`, multi-core threading, and optional GPU offloading via `KernelAbstractions.jl`.
 
 The ODFTEX model of Ribe, Faccenda & VanderBeek (2026) is a port of the authors' Fortran code, extended to time-dependent flow. See [D-Rex and ODFTEX](@ref) for how the two models differ and how to use each.
 
@@ -33,8 +33,8 @@ The ODFTEX model of Ribe, Faccenda & VanderBeek (2026) is a port of the authors'
 
 ## Citing
 
-If you use DRex.jl, please cite the papers of the model you use and the Zenodo archive:
+If you use MantleFabric.jl, please cite the papers of the model you use and the Zenodo archive:
 
 - Bilton, L., Duvernay, T., Davies, D.R., Eakin, C.M., 2025. *PyDRex: predicting crystallographic preferred orientation in peridotites under steady-state and time-dependent strain*. Geophysical Journal International 241, 35–57. <https://doi.org/10.1093/gji/ggaf026>
 - Ribe, N.M., Faccenda, M., VanderBeek, B., 2026. *ODFTEX: a continuum model for texture evolution with dynamic recrystallization*. Geophysical Journal International 246, 1–19. <https://doi.org/10.1093/gji/ggag170> (if you use the ODFTEX model)
-- Kaus, B.J.P., 2025. *DRex.jl: A Julia package for simulating crystallographic preferred orientation (CPO) evolution* (v0.1.0). Zenodo. <https://doi.org/10.5281/zenodo.19110048>
+- Kaus, B.J.P., 2025. *DRex.jl: A Julia package for simulating crystallographic preferred orientation (CPO) evolution* (v0.1.0). Zenodo. <https://doi.org/10.5281/zenodo.19110048> (the package was called DRex.jl until v0.2)

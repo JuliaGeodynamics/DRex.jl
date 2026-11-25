@@ -11,12 +11,12 @@
 # At ε ≈ 0.5, the difference reaches a maximum of θ − Φ ≈ 5°.
 # Both angles are measured from the X-axis and converge to π/2 as ε → ∞.
 #
-# Also overlays numerical DRex single-crystal result (1 grain, M* = 0).
+# Also overlays numerical D-Rex single-crystal result (1 grain, M* = 0).
 
 push!(LOAD_PATH, "@v#.#")  # stacked env for CairoMakie
 
-using DRex
-using DRex: simple_shear_2d, update_orientations!, finite_strain, smallest_angle
+using MantleFabric
+using MantleFabric: simple_shear_2d, update_orientations!, finite_strain, smallest_angle
 using LinearAlgebra
 using CairoMakie
 
@@ -76,7 +76,7 @@ end
 lag_theory = [θ_theory(ε) - Φ_theory(ε) for ε in ε_fine]
 
 # Numerical
-println("Running single-crystal DRex simulation (1 grain, 500 steps, ε_max=10)...")
+println("Running single-crystal D-Rex simulation (1 grain, 500 steps, ε_max=10)...")
 t0 = time()
 strains, θ_num, Φ_num = run_single_crystal()
 lag_num = θ_num .- Φ_num
@@ -93,7 +93,7 @@ ax = Axis(fig[1, 1],
 lines!(ax, collect(ε_fine), lag_theory, linewidth=2.5, color=:black,
     label="Analytical (eqs. 24, 29)")
 scatter!(ax, strains[1:25:end], lag_num[1:25:end], markersize=8,
-    color=:steelblue, marker=:circle, label="DRex (1 grain, M*=0)")
+    color=:steelblue, marker=:circle, label="D-Rex (1 grain, M*=0)")
 
 xlims!(ax, 0, 10)
 ylims!(ax, -0.5, 6)

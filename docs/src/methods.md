@@ -1,6 +1,6 @@
 # D-Rex and ODFTEX
 
-DRex.jl contains two models for the evolution of crystallographic preferred orientation (CPO) in olivine–enstatite aggregates. Both take the same input — a velocity gradient along a pathline — and both give orientations from which the usual diagnostics and elastic tensors are computed. They differ in how the texture is represented and in how recrystallisation is described.
+MantleFabric.jl contains two models for the evolution of crystallographic preferred orientation (CPO) in olivine–enstatite aggregates. Both take the same input — a velocity gradient along a pathline — and both give orientations from which the usual diagnostics and elastic tensors are computed. They differ in how the texture is represented and in how recrystallisation is described.
 
 - **D-Rex** (Kaminski & Ribe 2001; Kaminski et al. 2004; Bilton et al. 2025) follows a set of discrete grains.
 - **ODFTEX** (Ribe, Faccenda & VanderBeek 2026) follows a continuous orientation distribution function (ODF).
@@ -30,7 +30,7 @@ In practice:
 Both models are driven the same way: a function `get_velocity_gradient(t, x)` and a pathline `(t_start, t_end, get_position)`.
 
 ```julia
-using LinearAlgebra, DRex
+using LinearAlgebra, MantleFabric
 
 # Simple shear in the X–Z plane at 1e-15 s⁻¹, followed for 1e15 s
 _, get_L = simple_shear_2d("X", "Z", 1e-15)

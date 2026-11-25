@@ -2,7 +2,7 @@
 # (Ribe, Faccenda & VanderBeek 2026, GJI).
 #
 # `include` this from a figure script *after* a Makie backend is loaded. The
-# numeric pole-figure density and FSE long axis live in DRex itself
+# numeric pole-figure density and FSE long axis live in MantleFabric itself
 # (odf_polefigure_density, fse_long_axis); this file only adds the Makie drawing
 # helpers and the paper's fixed colour scale.
 #
@@ -10,7 +10,7 @@
 # symmetry, density in multiples of a uniform distribution (MUD), Crameri's
 # "berlin" colour map, fixed 0–3.5 colour range with 12 filled-contour bands.
 
-using DRex: odf_polefigure_density, fse_long_axis
+using MantleFabric: odf_polefigure_density, fse_long_axis
 
 # ── Plotting constants (paper style) ─────────────────────────────────────────
 # Crameri's "berlin" scientific colour map. Most figures use a fixed 0–3.5 MUD

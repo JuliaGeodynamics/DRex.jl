@@ -1,4 +1,4 @@
-name = "DRex"
+name = "MantleFabric"
 uuid = "d4e3b9a0-5c1a-4e2b-8f3d-6a7b8c9d0e1f"
 license = "GPL-3.0-or-later"
 authors = ["Boris Kaus <kaus@uni-mainz.de>"]
@@ -19,7 +19,7 @@ Metal = "dde4c033-4e86-420c-a63e-0dd931031962"
 WriteVTK = "64499a7a-5c06-52f2-abe2-ccb03c286192"
 
 [extensions]
-DRexLaMEMExt = ["LaMEM", "GeophysicalModelGenerator", "WriteVTK"]
+MantleFabricLaMEMExt = ["LaMEM", "GeophysicalModelGenerator", "WriteVTK"]
 
 [compat]
 GeophysicalModelGenerator = "0.7"

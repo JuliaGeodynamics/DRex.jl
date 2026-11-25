@@ -2,8 +2,8 @@ using Test
 using LinearAlgebra
 using StaticArrays
 using Random
-using DRex
-using DRex: ODFState, init_odf, odftex_step!, odftex_kinematics,
+using MantleFabric
+using MantleFabric: ODFState, init_odf, odftex_step!, odftex_kinematics,
             euler_to_dircos, dircos_to_euler, psdot_calc_general,
             integral_drx, strain_rate_scale,
             odf_box_weights, sample_orientations, odf_mean_axis,
@@ -408,27 +408,27 @@ end
 
     # Steady flow through the driver picks the same 40 steps and F = I + L·t.
     st = init_odf(nbox)
-    F = DRex.odftex_update!(st, Matrix(1.0I, 3, 3), (t, x) -> L0, (0.0, 1.0, getpos))
+    F = MantleFabric.odftex_update!(st, Matrix(1.0I, 3, 3), (t, x) -> L0, (0.0, 1.0, getpos))
     @test st.f ≈ ref.f
     @test F ≈ I + L0
 
     # Same strain accrued 1000× faster (dimensional rates): identical texture.
     st = init_odf(nbox)
-    F = DRex.odftex_update!(st, Matrix(1.0I, 3, 3), (t, x) -> 1000 .* L0, (0.0, 1e-3, getpos))
+    F = MantleFabric.odftex_update!(st, Matrix(1.0I, 3, 3), (t, x) -> 1000 .* L0, (0.0, 1e-3, getpos))
     @test st.f ≈ ref.f
     @test F ≈ I + L0
 
     # Time-dependent rate g(t) = 2t on [0,1] (∫g = 1): same strain path, so the
     # texture must converge to the steady result.
     st = init_odf(nbox)
-    F = DRex.odftex_update!(st, Matrix(1.0I, 3, 3), (t, x) -> (2t) .* L0, (0.0, 1.0, getpos);
+    F = MantleFabric.odftex_update!(st, Matrix(1.0I, 3, 3), (t, x) -> (2t) .* L0, (0.0, 1.0, getpos);
                             max_strain_step = 0.005)
     @test F ≈ I + L0
     @test maximum(abs.(st.f .- ref.f)) / maximum(ref.f) < 2e-2
 
     # No deformation: nothing changes.
     st = init_odf(nbox)
-    DRex.odftex_update!(st, Matrix(1.0I, 3, 3), (t, x) -> zeros(3, 3), (0.0, 1.0, getpos))
+    MantleFabric.odftex_update!(st, Matrix(1.0I, 3, 3), (t, x) -> zeros(3, 3), (0.0, 1.0, getpos))
     @test all(st.f .≈ 1)
 end
 
@@ -439,21 +439,21 @@ end
 
     # Limiter engages once ln(c1/c2) > rmax and the texture then stops sharpening.
     st = init_odf(12)
-    F = DRex.odftex_update!(st, I3, (t, x) -> L0, (0.0, 1.0, getpos); rmax = 0.5)
+    F = MantleFabric.odftex_update!(st, I3, (t, x) -> L0, (0.0, 1.0, getpos); rmax = 0.5)
     @test st.ilimit == 1
     fmax = maximum(st.f)
-    DRex.odftex_update!(st, F, (t, x) -> L0, (1.0, 2.0, getpos); rmax = 0.5)
+    MantleFabric.odftex_update!(st, F, (t, x) -> L0, (1.0, 2.0, getpos); rmax = 0.5)
     @test maximum(st.f) ≈ fmax
     free = init_odf(12)
-    DRex.odftex_update!(free, I3, (t, x) -> L0, (0.0, 2.0, getpos))
+    MantleFabric.odftex_update!(free, I3, (t, x) -> L0, (0.0, 2.0, getpos))
     @test free.ilimit == 0 && maximum(free.f) > 2 * fmax
 
     # Isotropic ODF → nearly isotropic Voigt average; textured ODF → anisotropic.
-    ms = DRex.odf_to_minerals(init_odf(12))
+    ms = MantleFabric.odf_to_minerals(init_odf(12))
     @test length(ms) == 2 && sum(ms[1].fractions[end]) ≈ 1
     C = voigt_averages(ms, [olivine, enstatite], [0.7, 0.3])
     @test abs(C[1,1] - C[3,3]) / C[1,1] < 0.01
-    C = voigt_averages(DRex.odf_to_minerals(free), [olivine, enstatite], [0.7, 0.3])
+    C = voigt_averages(MantleFabric.odf_to_minerals(free), [olivine, enstatite], [0.7, 0.3])
     @test abs(C[1,1] - C[3,3]) / C[1,1] > 0.03
 end
 

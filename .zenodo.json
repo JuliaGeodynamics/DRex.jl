@@ -1,6 +1,6 @@
 {
-    "title": "DRex.jl: A Julia package for simulating crystallographic preferred orientation (CPO) evolution",
-    "description": "Julia translation of the PyDRex package for simulating crystallographic preferred orientation (CPO) evolution in polycrystals, based on the D-Rex model (Kaminski & Ribe, 2001; 2004). Implements allocation-free grain-level computations using StaticArrays.jl.",
+    "title": "MantleFabric.jl: A Julia package for simulating crystallographic preferred orientation (CPO) evolution",
+    "description": "Julia package for simulating crystallographic preferred orientation (CPO) evolution in olivine-enstatite polycrystals with two texture models: D-Rex (Kaminski & Ribe, 2001; 2004), as a translation of the PyDRex package, and ODFTEX (Ribe, Faccenda & VanderBeek, 2026). Formerly called DRex.jl.",
     "creators": [
         {
             "name": "Kaus, Boris J.P.",
@@ -22,7 +22,7 @@
     ],
     "related_identifiers": [
         {
-            "identifier": "https://github.com/JuliaGeodynamics/DRex.jl",
+            "identifier": "https://github.com/JuliaGeodynamics/MantleFabric.jl",
             "relation": "isSupplementTo",
             "scheme": "url"
         },

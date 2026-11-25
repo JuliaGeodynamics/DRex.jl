@@ -1,14 +1,14 @@
 using Documenter
-using DRex
+using MantleFabric
 
 makedocs(;
-    modules  = [DRex],
-    sitename = "DRex.jl",
+    modules  = [MantleFabric],
+    sitename = "MantleFabric.jl",
     authors  = "Boris Kaus and contributors",
-    repo     = Remotes.GitHub("JuliaGeodynamics", "DRex.jl"),
+    repo     = Remotes.GitHub("JuliaGeodynamics", "MantleFabric.jl"),
     format   = Documenter.HTML(;
         prettyurls = get(ENV, "CI", "false") == "true",
-        canonical  = "https://JuliaGeodynamics.github.io/DRex.jl",
+        canonical  = "https://JuliaGeodynamics.github.io/MantleFabric.jl",
         edit_link  = "main",
         assets     = String[],
     ),
@@ -26,6 +26,6 @@ makedocs(;
 )
 
 deploydocs(;
-    repo   = "github.com/JuliaGeodynamics/DRex.jl",
+    repo   = "github.com/JuliaGeodynamics/MantleFabric.jl",
     devbranch = "main",
 )

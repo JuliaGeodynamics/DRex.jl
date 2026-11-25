@@ -39,7 +39,7 @@ model = Model(
         ],
     ),
 
-    # Enable velocity gradient tensor — required for DRex CPO coupling
+    # Enable velocity gradient tensor — required for D-Rex CPO coupling
     Output(
         out_file_name     = "Subduction_3D_CPO",
         out_dir           = "Subduction_3D_CPO",

@@ -10,12 +10,12 @@
 # Theoretical relationship (eq. 23 / eq. S23):
 #   ∂θ/∂t = D₀(1 + cos 2θ)
 #
-# The plot shows the theoretical curve (solid line) and DRex numerical
+# The plot shows the theoretical curve (solid line) and D-Rex numerical
 # rotation rates (open circles) sampled every 25th angle.
 
 push!(LOAD_PATH, "@v#.#")  # stacked env for CairoMakie
 
-using DRex
+using MantleFabric
 using LinearAlgebra
 using CairoMakie
 
@@ -45,7 +45,7 @@ for θ in range(0, 2π, length=3600)
     R = rotation_from_rotvec([0.0, 0.0, θ])
     orientations = reshape(R, 1, 3, 3)
 
-    orientations_diff, _ = DRex.derivatives(
+    orientations_diff, _ = MantleFabric.derivatives(
         matrix_dislocation, olivine, olivine_A, 1,
         orientations, [1.0], sr, L, fill(NaN, 3, 3),
         1.5, 3.5, 5.0, 0.0, 1.0,
@@ -77,7 +77,7 @@ lines!(ax, angles_deg, target_rates, linewidth=2, color=:black,
 idx = 1:25:length(angles_deg)
 scatter!(ax, angles_deg[idx], numerical_rates[idx], markersize=8,
     color=(:steelblue, 0.0), strokecolor=:steelblue, strokewidth=1.5,
-    marker=:circle, label="DRex numerical")
+    marker=:circle, label="D-Rex numerical")
 
 # Dashed lines at 90° and 270° (shear-aligned, zero rotation)
 vlines!(ax, [90, 270], linestyle=:dash, color=:gray60, linewidth=1)

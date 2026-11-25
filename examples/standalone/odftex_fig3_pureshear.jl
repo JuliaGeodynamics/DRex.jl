@@ -19,7 +19,7 @@
 
 push!(LOAD_PATH, "@v#.#")   # allow CairoMakie from a stacked env
 
-using DRex
+using MantleFabric
 using LinearAlgebra
 using Printf
 
@@ -32,7 +32,7 @@ catch
     :gl
 end
 
-using DRex: init_odf, odftex_step!
+using MantleFabric: init_odf, odftex_step!
 
 # Shared pole-figure density + drawing utilities (load after the Makie backend).
 include(joinpath(@__DIR__, "odftex_polefigure_utils.jl"))
@@ -56,7 +56,7 @@ states = map(LAMBDAS) do λ
     for _ in 1:N_STEPS
         odftex_step!(st, VG, dt)
     end
-    @printf("  λ=%.1f : ODF integral = %.4f\n", λ, DRex.integral_drx(st))
+    @printf("  λ=%.1f : ODF integral = %.4f\n", λ, MantleFabric.integral_drx(st))
     st
 end
 

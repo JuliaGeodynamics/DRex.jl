@@ -54,7 +54,7 @@ const PERMUTATION_SYMBOL = SArray{Tuple{3,3,3},Int8}(
 # Parameters
 # ──────────────────────────────────────────────────────────────────────────────
 
-"""Default parameters for DRex simulations."""
+"""Default parameters for D-Rex simulations."""
 Base.@kwdef struct DefaultParams
     phase_assemblage::NTuple{1,MineralPhase} = (olivine,)
     phase_fractions::NTuple{1,Float64} = (1.0,)

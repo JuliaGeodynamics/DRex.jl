@@ -26,7 +26,7 @@
 
 push!(LOAD_PATH, "@v#.#")
 
-using DRex
+using MantleFabric
 using LinearAlgebra
 using Printf
 
@@ -38,7 +38,7 @@ catch
     :gl
 end
 
-using DRex: init_odf, odftex_update!, odf_to_minerals
+using MantleFabric: init_odf, odftex_update!, odf_to_minerals
 
 # ── Parameters ────────────────────────────────────────────────────────────────
 const WIDTH    = 600.0         # km, two cells of 300 km

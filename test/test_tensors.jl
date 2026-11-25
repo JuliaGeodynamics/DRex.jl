@@ -1,7 +1,7 @@
 using Test
 using LinearAlgebra
-using DRex
-using DRex: voigt_decompose, voigt_to_elastic_tensor, elastic_tensor_to_voigt,
+using MantleFabric
+using MantleFabric: voigt_decompose, voigt_to_elastic_tensor, elastic_tensor_to_voigt,
               voigt_matrix_to_vector, voigt_vector_to_matrix, upper_tri_to_symmetric
 
 @testset "Voigt Decompose" begin

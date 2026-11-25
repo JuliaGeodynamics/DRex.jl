@@ -1,6 +1,6 @@
 using Test
-using DRex
-using DRex: lambert_equal_area, shirley_concentric_squaredisk
+using MantleFabric
+using MantleFabric: lambert_equal_area, shirley_concentric_squaredisk
 using Random
 
 @testset "Lambert Equal Area" begin

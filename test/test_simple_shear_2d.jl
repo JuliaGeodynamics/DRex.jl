@@ -1,8 +1,8 @@
 using Test
 using LinearAlgebra
 using Statistics
-using DRex
-using DRex: simple_shear_2d, strain_increment, finite_strain, smallest_angle
+using MantleFabric
+using MantleFabric: simple_shear_2d, strain_increment, finite_strain, smallest_angle
 
 @testset "Simple Shear 2D Preliminaries" begin
     @testset "strain_increment" begin
@@ -36,7 +36,7 @@ end
 
         @testset "zero_recrystallisation T=$T" begin
             seed = 8816
-            params = DRex.default_params()
+            params = MantleFabric.default_params()
             params[:gbm_mobility] = 0.0
             strain_rate = 1.0
             timestamps = range(0, 1, length=25)
@@ -70,7 +70,7 @@ end
         @testset "grainsize_median T=$T" begin
             for gbm_mobility in [50, 100, 150]
                 seed = 8816
-                params = DRex.default_params()
+                params = MantleFabric.default_params()
                 params[:gbm_mobility] = Float64(gbm_mobility)
                 params[:nucleation_efficiency] = 5.0
                 strain_rate = 1.0

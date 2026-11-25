@@ -20,7 +20,7 @@
 #   julia --project=. cornerflow_simple.jl --metal
 
 using LinearAlgebra
-using DRex
+using MantleFabric
 using GLMakie
 using KernelAbstractions
 

@@ -13,7 +13,7 @@
 =#
 
 using LaMEM, GeophysicalModelGenerator
-using DRex
+using MantleFabric
 using CairoMakie
 using LinearAlgebra
 

@@ -192,7 +192,7 @@ end
 M-index for the ODF. Computed by sampling `n` orientations from the ODF and
 reusing the existing grain-based `misorientation_index`. (A fully native
 quadrature over the Euler grid is possible but the sampled estimate matches the
-discrete-grain diagnostic used elsewhere in DRex, which is the point of the
+discrete-grain diagnostic used elsewhere in MantleFabric, which is the point of the
 "both" approach.)
 """
 function odf_misorientation_index(state::ODFState{T};
