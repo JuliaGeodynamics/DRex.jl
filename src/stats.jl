@@ -40,7 +40,7 @@ function resample_orientations(
         cumfrac = cumsum(frac_sorted)
         cumfrac[end] = 1.0
         samples = rand(rng, ns)
-        count_less = searchsortedlast.(Ref(cumfrac), samples)
+        count_less = searchsortedfirst.(Ref(cumfrac), samples)   # first grain with cumfrac ≥ sample (numpy searchsorted)
         count_less = clamp.(count_less, 1, M_i)
         out_o = Array{ET,3}(undef, ns, 3, 3)
         out_f = Vector{ET}(undef, ns)

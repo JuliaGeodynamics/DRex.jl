@@ -12,6 +12,7 @@ module DRexLaMEMExt
 using DRex
 using LaMEM, GeophysicalModelGenerator
 using LinearAlgebra
+using Random
 
 using WriteVTK
 
@@ -181,6 +182,43 @@ function _advect_particle!(tracer::CPOTracer, get_velocity, t_start, t_end;
 end
 
 # --------------------------------------------------------------------------- #
+# Per-tracer texture update (D-Rex or ODFTEX, depending on how it was created)
+# --------------------------------------------------------------------------- #
+
+# Slip-system frame in which each phase's orientations are read off the ODF.
+_odf_frame(phase::MineralPhase) = phase == enstatite ? 4 : 1
+
+# Append orientations sampled from the tracer's ODF to its minerals, so that
+# diagnostics and Paraview output can treat D-Rex and ODFTEX tracers alike. The
+# same random numbers are reused every step (seeded per tracer), which keeps the
+# sampled texture evolving smoothly instead of jittering from frame to frame.
+function _push_odf_sample!(tracer::CPOTracer)
+    for m in tracer.minerals
+        rng = Random.Xoshiro(something(m.seed, 0))
+        push!(m.orientations, sample_orientations(tracer.odf, m.n_grains;
+                                                  s = _odf_frame(m.phase), rng))
+        push!(m.fractions, fill(1 / m.n_grains, m.n_grains))
+    end
+end
+
+function _update_texture!(tracer::CPOTracer, params, get_vel_grad, pathline,
+                          odftex_max_strain_step)
+    if tracer.odf === nothing
+        tracer.deformation_gradient = update_all!(
+            tracer.minerals, params, tracer.deformation_gradient,
+            get_vel_grad, pathline,
+        )
+    else
+        tracer.deformation_gradient = odftex_update!(
+            tracer.odf, tracer.deformation_gradient, get_vel_grad, pathline;
+            max_strain_step = odftex_max_strain_step,
+        )
+        _push_odf_sample!(tracer)
+    end
+    return tracer
+end
+
+# --------------------------------------------------------------------------- #
 # Time-dependent CPO evolution
 # --------------------------------------------------------------------------- #
 
@@ -190,6 +228,7 @@ function evolve_cpo!(
     snapshots::Vector{LaMEMSnapshot};
     advect::Bool    = true,
     n_substeps::Int = 10,
+    odftex_max_strain_step::Real = 0.025,
 )
     n_steps = length(snapshots) - 1
     for step in 1:n_steps
@@ -223,10 +262,7 @@ function evolve_cpo!(
             end
 
             pathline = (t_start, t_end, get_position)
-            tracer.deformation_gradient = update_all!(
-                tracer.minerals, params, tracer.deformation_gradient,
-                get_vel_grad, pathline,
-            )
+            _update_texture!(tracer, params, get_vel_grad, pathline, odftex_max_strain_step)
         end
 
         @info "Step $step/$n_steps (t = $(round(t_start; sigdigits=4)) → $(round(t_end; sigdigits=4)))"
@@ -252,6 +288,7 @@ function _evolve_cpo_steady!(
     n_steps::Int;
     n_substeps::Int = 5,
     advect::Bool    = true,
+    odftex_max_strain_step::Real = 0.025,
 )
     has_velocity = snap.velocity !== nothing
     dt_step      = duration / n_steps
@@ -285,10 +322,7 @@ function _evolve_cpo_steady!(
             get_vel_grad = (_, x) -> interpolate_vel_grad(snap, x)
 
             pathline = (t_start, t_end, get_position)
-            tracer.deformation_gradient = update_all!(
-                tracer.minerals, params, tracer.deformation_gradient,
-                get_vel_grad, pathline,
-            )
+            _update_texture!(tracer, params, get_vel_grad, pathline, odftex_max_strain_step)
         end
 
         t += dt_step
@@ -334,7 +368,15 @@ function create_tracers(
     seed::Union{Int,Nothing}               = nothing,
     phase_assemblage::Vector{MineralPhase} = [olivine, enstatite],
     fabric::MineralFabric                  = olivine_A,
+    method::Symbol                         = :drex,
+    nbox::Int                              = 30,
+    λ::Real                                = 2.6,
 )
+    method in (:drex, :odftex) ||
+        throw(ArgumentError("method must be :drex or :odftex, got :$method"))
+    if method == :odftex && fabric != olivine_A
+        throw(ArgumentError("ODFTEX only supports the olivine A-type slip system (fabric=olivine_A)"))
+    end
     tracers = CPOTracer[]
     for (i, pos) in enumerate(positions)
         minerals = Mineral[]
@@ -344,8 +386,9 @@ function create_tracers(
             push!(minerals, Mineral(; phase = phase, fabric = phase_fabric,
                                       n_grains = n_grains, seed = s))
         end
+        odf = method == :odftex ? init_odf(nbox; λ) : nothing
         push!(tracers, CPOTracer(copy(pos), [copy(pos)], minerals,
-                                 Matrix{Float64}(I, 3, 3)))
+                                 Matrix{Float64}(I, 3, 3), odf))
     end
     return tracers
 end
@@ -400,6 +443,9 @@ function run_cpo_at_locations(
     seed::Union{Int,Nothing} = 42,
     n_substeps::Int          = 5,
     fabric::MineralFabric    = olivine_A,
+    method::Symbol           = :drex,
+    nbox::Int                = 30,
+    λ::Real                  = 2.6,
 )
     @info "Backtracking $(length(target_positions)) positions through $(length(snapshots)-1) intervals..."
     source_positions = backtrack_positions(target_positions, snapshots; n_substeps)
@@ -408,7 +454,7 @@ function run_cpo_at_locations(
     tracers = create_tracers(source_positions;
         n_grains, seed,
         phase_assemblage = drex_params[:phase_assemblage],
-        fabric,
+        fabric, method, nbox, λ,
     )
 
     @info "Evolving CPO forward..."
@@ -420,6 +466,15 @@ end
 # --------------------------------------------------------------------------- #
 # Paraview output helper
 # --------------------------------------------------------------------------- #
+
+# Orientations of `mineral` at snapshot `k` with every grain carrying equal weight.
+# D-Rex grains have unequal volume fractions, so they are resampled by fraction
+# (fixed seed ⇒ reproducible); ODFTEX samples are already equally weighted.
+function _weighted_orientations(mineral, k)
+    ori, frac = mineral.orientations[k], mineral.fractions[k]
+    allequal(frac) && return ori
+    return resample_orientations([ori], [frac]; seed = 1)[1][1]
+end
 
 function _write_paraview(tracers, vtk_prefix, n_saved, get_time)
     n_tracers = length(tracers)
@@ -439,7 +494,7 @@ function _write_paraview(tracers, vtk_prefix, n_saved, get_time)
         for (i, tr) in enumerate(tracers)
             positions_out[:, i] .= tr.positions[k]
             ol                   = tr.minerals[1]
-            ori                  = ol.orientations[k]
+            ori                  = _weighted_orientations(ol, k)
             fast_axes[:, i]     .= bingham_average(ori; axis = "a")
             m_indices[i]         = misorientation_index(ori, orthorhombic)
             F                    = tr.deformation_gradient
@@ -499,6 +554,9 @@ write a Paraview time-series — all in one call.
 | `n_substeps`            | `5`                       | Advection / CPO sub-steps per output step          |
 | `fabric`                | `olivine_A`               | Olivine fabric type                                |
 | `vel_grad_field`        | `:vel_gr_tensor`          | Field name in LaMEM output                         |
+| `method`                | `:drex`                   | Texture model: `:drex` or `:odftex`                |
+| `nbox`                  | `30`                      | ODFTEX only: Euler-grid resolution (`nbox`³ boxes) |
+| `λ`                     | `2.6`                     | ODFTEX only: recrystallisation parameter           |
 
 # Steady-state-only keyword arguments
 | Keyword                 | Default    | Description                                               |
@@ -532,6 +590,10 @@ function compute_cpo_from_lamem(
     n_substeps::Int                 = 5,
     fabric::MineralFabric           = olivine_A,
     vel_grad_field::Symbol          = :vel_gr_tensor,
+    # Texture model: :drex (default) or :odftex (nbox, λ apply to ODFTEX only)
+    method::Symbol                  = :drex,
+    nbox::Int                       = 30,
+    λ::Real                         = 2.6,
 )
     # ── Validate inputs ──────────────────────────────────────────────────────
     if isnothing(target_positions) == isnothing(initial_positions)
@@ -570,11 +632,11 @@ function compute_cpo_from_lamem(
             source_positions = positions
         end
 
-        @info "Creating CPO tracers..."
+        @info "Creating CPO tracers (method = :$method)..."
         tracers = create_tracers(source_positions;
             n_grains, seed,
             phase_assemblage = drex_params[:phase_assemblage],
-            fabric,
+            fabric, method, nbox, λ,
         )
 
         @info "Evolving CPO (steady-state, $(steady_state_n_steps) steps, $(dur) Myr)..."
@@ -595,11 +657,11 @@ function compute_cpo_from_lamem(
             source_positions = positions
         end
 
-        @info "Creating CPO tracers..."
+        @info "Creating CPO tracers (method = :$method)..."
         tracers = create_tracers(source_positions;
             n_grains, seed,
             phase_assemblage = drex_params[:phase_assemblage],
-            fabric,
+            fabric, method, nbox, λ,
         )
 
         @info "Evolving CPO forward..."
@@ -620,7 +682,7 @@ function compute_cpo_from_lamem(
     _write_paraview(tracers, vtk_prefix, n_saved, get_time)
     @info "Paraview output written: $(vtk_prefix).pvd + $(n_saved) .vtp files"
 
-    m_final = [misorientation_index(tr.minerals[1].orientations[end], orthorhombic)
+    m_final = [misorientation_index(_weighted_orientations(tr.minerals[1], lastindex(tr.minerals[1].orientations)), orthorhombic)
                for tr in tracers]
     @info "M-index range: $(round(minimum(m_final); sigdigits=3)) – $(round(maximum(m_final); sigdigits=3))"
 

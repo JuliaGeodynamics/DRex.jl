@@ -55,6 +55,47 @@ tracers, snaps = compute_cpo_from_lamem(
 )
 ```
 
+### Choosing the texture model: D-Rex or ODFTEX
+
+The `method` keyword selects how the texture is evolved on the tracers:
+
+| `method` | Model |
+|---|---|
+| `:drex` (default) | Discrete D-Rex grains (Kaminski et al. 2004) |
+| `:odftex` | Continuous ODF on an Euler-angle grid (Ribe, Faccenda & VanderBeek 2026) |
+
+```julia
+tracers, snaps = compute_cpo_from_lamem(
+    sim_name, sim_dir;
+    target_positions = [...],
+    method = :odftex,
+    nbox   = 30,     # Euler-grid resolution (nbox³ boxes per tracer)
+    λ      = 2.6,    # recrystallisation parameter
+)
+```
+
+Everything else (positions, backtracking, snapshot window, steady-state mode,
+ParaView output) works the same for both. With `:odftex`:
+
+- the D-Rex entries of `drex_params` are not used, apart from `:phase_assemblage`;
+- only the olivine A-type slip system is available (`fabric = olivine_A`);
+- `n_grains` is the number of orientations sampled from the ODF after every step
+  and stored in `tracer.minerals`, so the usual diagnostics and plots apply;
+  the ODF itself is in `tracer.odf`;
+- the number of texture steps per snapshot interval is set automatically so that
+  the strain increment per step stays below 0.025 (`odftex_max_strain_step` in
+  [`evolve_cpo!`](@ref)).
+
+The figure below compares the two models on the 3D subduction example, using the
+same 126 tracers and the same LaMEM velocity field. The fast-axis directions
+agree to within about 10° (median) and texture strength is similar at small
+strain; at large strain ODFTEX (λ = 2.6) gives a considerably sharper texture
+than D-Rex with the parameters of the example (`gbm_mobility = 10`). It is
+produced by
+[`examples/LaMEM/compare_drex_odftex.jl`](https://github.com/JuliaGeodynamics/DRex.jl/tree/main/examples/LaMEM).
+
+![D-Rex vs ODFTEX on the 3D subduction example](assets/LaMEM_drex_vs_odftex.png)
+
 ### Time-dependent vs steady-state mode
 
 **Time-dependent** (default): reads velocity gradients from every snapshot.
@@ -86,7 +127,7 @@ Provide exactly one of:
 ```julia
 snaps   = load_snapshots(sim_name, sim_dir)
 src     = backtrack_positions(target_positions, snaps; n_substeps=5)
-tracers = create_tracers(src; n_grains=1000, seed=42, fabric=olivine_A)
+tracers = create_tracers(src; n_grains=1000, seed=42, fabric=olivine_A)   # add method=:odftex for ODFTEX
 evolve_cpo!(tracers, drex_params, snaps; advect=true, n_substeps=5)
 ```
 

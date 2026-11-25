@@ -45,6 +45,8 @@ include("diagnostics.jl")
 include("io.jl")
 include("velocity.jl")
 include("pathlines.jl")
+include("odftex.jl")
+include("odftex_diagnostics.jl")
 include("lamem_coupling.jl")
 
 export MineralPhase, olivine, enstatite
@@ -64,6 +66,14 @@ export symmetry_pgr, misorientation_index, coaxial_index, smallest_angle
 # Velocity & Pathlines
 export simple_shear_2d, cell_2d, corner_2d
 export get_pathline
+
+# ODFTEX continuum texture model
+export ODFState, init_odf, odftex_step!, odftex_update!, odftex_kinematics
+export euler_to_dircos, dircos_to_euler, psdot_calc_general
+export integral_drx, eulerian_transform, strain_rate_scale
+export odf_box_weights, sample_orientations, odf_to_minerals, odf_mean_axis,
+       odf_pole_figure, odf_misorientation_index,
+       odf_polefigure_density, fse_long_axis, odf_expectation_angle
 
 # Geometry
 export LatticeSystem, orthorhombic, monoclinic, triclinic, tetragonal, hexagonal
