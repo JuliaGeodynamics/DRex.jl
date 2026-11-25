@@ -2,8 +2,8 @@ using Test
 using LinearAlgebra
 using Statistics
 using Random
-using DRex
-using DRex: cell_2d, get_pathline, strain_increment, to_indices2d, add_dim,
+using MantleFabric
+using MantleFabric: cell_2d, get_pathline, strain_increment, to_indices2d, add_dim,
               bingham_average, smallest_angle, symmetry_pgr,
               resample_orientations, update_orientations!
 
@@ -154,7 +154,7 @@ end
 
         for n_grains in n_grains_list
             @testset "test_xz N=$n_grains T=$T" begin
-                params = DRex.default_params()
+                params = MantleFabric.default_params()
                 params[:number_of_grains] = n_grains
 
                 get_velocity, get_velocity_gradient = cell_2d("X", "Z", 1.0)
@@ -214,7 +214,7 @@ end
 @testset "Vortex 2D — DiffusionCreep" begin
     seed = 8816
 
-    params = DRex.default_params()
+    params = MantleFabric.default_params()
     params[:gbm_mobility] = 10.0
 
     n_grains = params[:number_of_grains]

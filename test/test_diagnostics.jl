@@ -1,9 +1,9 @@
 using Test
 using LinearAlgebra
 using Random
-using DRex
-using DRex: elasticity_components, symmetry_pgr, upper_tri_to_symmetric
-using DRex: resample_orientations
+using MantleFabric
+using MantleFabric: elasticity_components, symmetry_pgr, upper_tri_to_symmetric
+using MantleFabric: resample_orientations
 
 """Rotation matrix from axis-angle (Rodrigues formula)."""
 function _rotation_from_rotvec(rotvec::Vector{Float64})

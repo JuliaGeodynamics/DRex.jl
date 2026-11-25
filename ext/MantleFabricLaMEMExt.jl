@@ -1,22 +1,22 @@
-# DRexLaMEMExt — LaMEM coupling extension for DRex.jl
+# MantleFabricLaMEMExt — LaMEM coupling extension for MantleFabric.jl
 #
 # Activated automatically when both LaMEM and GeophysicalModelGenerator are
-# loaded alongside DRex:
+# loaded alongside MantleFabric:
 #
-#   using DRex, LaMEM, GeophysicalModelGenerator
+#   using MantleFabric, LaMEM, GeophysicalModelGenerator
 #
 # Implements all functions declared as stubs in src/lamem_coupling.jl.
 
-module DRexLaMEMExt
+module MantleFabricLaMEMExt
 
-using DRex
+using MantleFabric
 using LaMEM, GeophysicalModelGenerator
 using LinearAlgebra
 using Random
 
 using WriteVTK
 
-import DRex:
+import MantleFabric:
     LaMEMSnapshot, CPOTracer,
     load_snapshots, create_tracers, evolve_cpo!,
     backtrack_positions, run_cpo_at_locations, compute_cpo_from_lamem,
@@ -548,7 +548,7 @@ write a Paraview time-series — all in one call.
 | `skip_initial_steps`    | `5`                       | Drop first N snapshots (spin-up transients)        |
 | `start_step`            | `nothing` (= 1)           | First snapshot index within usable window          |
 | `end_step`              | `nothing` (= last)        | Last  snapshot index within usable window          |
-| `drex_params`           | `default_params()`        | DRex parameter dict                                |
+| `drex_params`           | `default_params()`        | D-Rex parameter dict                                |
 | `n_grains`              | `1000`                    | Grains per mineral per tracer                      |
 | `seed`                  | `42`                      | RNG seed                                           |
 | `n_substeps`            | `5`                       | Advection / CPO sub-steps per output step          |
@@ -583,7 +583,7 @@ function compute_cpo_from_lamem(
     steady_state_step::Union{Int,Nothing}         = nothing,
     steady_state_duration::Union{Float64,Nothing} = nothing,
     steady_state_n_steps::Int                     = 100,
-    # DRex / tracer settings
+    # D-Rex / tracer settings
     drex_params::Dict{Symbol,Any}   = default_params(),
     n_grains::Int                   = 1000,
     seed::Union{Int,Nothing}        = 42,
@@ -689,4 +689,4 @@ function compute_cpo_from_lamem(
     return tracers, snaps
 end
 
-end # module DRexLaMEMExt
+end # module MantleFabricLaMEMExt

@@ -1,12 +1,12 @@
 # LaMEM Integration
 
-DRex.jl can be coupled to 3D geodynamic simulations run with
+MantleFabric.jl can be coupled to 3D geodynamic simulations run with
 [LaMEM](https://github.com/JuliaGeodynamics/LaMEM.jl) via an **optional package
 extension** that loads automatically when the trigger packages are imported:
 
 ```julia
 using LaMEM, GeophysicalModelGenerator, WriteVTK
-using DRex   # DRexLaMEMExt loads automatically
+using MantleFabric   # MantleFabricLaMEMExt loads automatically
 ```
 
 ## How it works
@@ -18,7 +18,7 @@ using DRex   # DRexLaMEMExt loads automatically
    material source at the first used snapshot.
 3. **Seed tracers** — [`create_tracers`](@ref) places `Mineral` particles with random
    initial orientations at the backtracked source positions.
-4. **Evolve CPO** — [`evolve_cpo!`](@ref) advects tracers forward and integrates the DRex
+4. **Evolve CPO** — [`evolve_cpo!`](@ref) advects tracers forward and integrates the D-Rex
    ODE at each step; all tracers run in parallel via `Threads.@threads`.
 5. **Write ParaView output** — a `.pvd` time-series and per-step `.vtp` files are
    written with the following point data:
@@ -92,7 +92,7 @@ agree to within about 10° (median) and texture strength is similar at small
 strain; at large strain ODFTEX (λ = 2.6) gives a considerably sharper texture
 than D-Rex with the parameters of the example (`gbm_mobility = 10`). It is
 produced by
-[`examples/LaMEM/compare_drex_odftex.jl`](https://github.com/JuliaGeodynamics/DRex.jl/tree/main/examples/LaMEM).
+[`examples/LaMEM/compare_drex_odftex.jl`](https://github.com/JuliaGeodynamics/MantleFabric.jl/tree/main/examples/LaMEM).
 
 ![D-Rex vs ODFTEX on the 3D subduction example](assets/LaMEM_drex_vs_odftex.png)
 
@@ -151,6 +151,6 @@ out_vel_gr_tensor = 1
 out_velocity      = 1
 ```
 
-See [`examples/LaMEM/`](https://github.com/JuliaGeodynamics/DRex.jl/tree/main/examples/LaMEM) for a complete 3D subduction example.
+See [`examples/LaMEM/`](https://github.com/JuliaGeodynamics/MantleFabric.jl/tree/main/examples/LaMEM) for a complete 3D subduction example.
 
 ![LaMEM CPO](assets/LaMEM_CPO.png)

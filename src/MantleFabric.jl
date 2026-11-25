@@ -1,10 +1,11 @@
 """
-    DRex
+    MantleFabric
 
 Simulate crystallographic preferred orientation (CPO) evolution in polycrystals.
 
-This is a Julia translation of the Python PyDRex package, with key routines designed
-to be allocation-free using StaticArrays.
+Two texture models are provided: the discrete-grain D-Rex model (a Julia translation
+of the Python PyDRex package, with key routines designed to be allocation-free using
+StaticArrays) and the continuum ODFTEX model. The package was called DRex.jl until v0.2.
 
 # Core types
 - `MineralPhase`: olivine, enstatite
@@ -27,7 +28,7 @@ to be allocation-free using StaticArrays.
 - `Stats`: statistical methods
 - `Utils`: utility functions
 """
-module DRex
+module MantleFabric
 
 using LinearAlgebra
 using StaticArrays
@@ -94,7 +95,7 @@ export strain_increment, apply_gbs!, extract_vars, remove_nans, default_ncpus, a
 # IO
 export SCSVError, read_scsv, save_scsv, write_scsv_header, scsv_data
 
-# LaMEM coupling (implemented in ext/DRexLaMEMExt.jl when LaMEM is loaded)
+# LaMEM coupling (implemented in ext/MantleFabricLaMEMExt.jl when LaMEM is loaded)
 export LaMEMSnapshot, CPOTracer
 export load_snapshots, create_tracers, evolve_cpo!
 export backtrack_positions, run_cpo_at_locations, compute_cpo_from_lamem

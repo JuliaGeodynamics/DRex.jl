@@ -1,10 +1,10 @@
 # LaMEM coupling types and function stubs.
 #
-# The actual implementations live in ext/DRexLaMEMExt.jl and are loaded
+# The actual implementations live in ext/MantleFabricLaMEMExt.jl and are loaded
 # automatically when both LaMEM and GeophysicalModelGenerator are imported
-# alongside DRex:
+# alongside MantleFabric:
 #
-#   using DRex, LaMEM, GeophysicalModelGenerator
+#   using MantleFabric, LaMEM, GeophysicalModelGenerator
 #
 # Without those packages the stubs below throw a descriptive MethodError.
 
@@ -63,7 +63,7 @@ CPOTracer(position, positions, minerals, deformation_gradient) =
     CPOTracer(position, positions, minerals, deformation_gradient, nothing)
 
 # --------------------------------------------------------------------------- #
-# Function stubs (implemented in ext/DRexLaMEMExt.jl)
+# Function stubs (implemented in ext/MantleFabricLaMEMExt.jl)
 # --------------------------------------------------------------------------- #
 
 """

@@ -20,7 +20,7 @@
 
 push!(LOAD_PATH, "@v#.#")   # allow CairoMakie from a stacked env
 
-using DRex
+using MantleFabric
 using LinearAlgebra
 using Printf
 
@@ -32,7 +32,7 @@ catch
     :gl
 end
 
-using DRex: init_odf, odftex_step!, odf_polefigure_density, fse_long_axis
+using MantleFabric: init_odf, odftex_step!, odf_polefigure_density, fse_long_axis
 
 # Shared pole-figure drawing helpers (load after the Makie backend).
 include(joinpath(@__DIR__, "odftex_polefigure_utils.jl"))
@@ -48,7 +48,7 @@ const AXES     = [("[100]", 1), ("[010]", 2), ("[001]", 3)]
 const VG = [0.0 -2.0 0.0; 0.0 0.0 0.0; 0.0 0.0 0.0]
 
 # Finite strain ellipsoid: with a constant velocity gradient L, F = exp(L t);
-# `fse_long_axis(F)` (from DRex) returns the FSE long axis. Here t = τ (ε̇₀=1).
+# `fse_long_axis(F)` (from MantleFabric) returns the FSE long axis. Here t = τ (ε̇₀=1).
 
 # ── Run ODFTEX at each strain ─────────────────────────────────────────────────
 println("Running ODFTEX simple shear (Γ=1, λ=$(LAMBDA), nbox=$(NBOX)) …")
@@ -59,7 +59,7 @@ states = map(TAUS) do τ
         odftex_step!(st, VG, dt)
     end
     @printf("  τ=%.1f (γ=%d%%) : ODF integral = %.4f\n",
-            τ, round(Int, 200τ), DRex.integral_drx(st))
+            τ, round(Int, 200τ), MantleFabric.integral_drx(st))
     st
 end
 

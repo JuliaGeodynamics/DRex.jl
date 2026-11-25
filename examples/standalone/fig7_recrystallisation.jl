@@ -23,7 +23,7 @@
 
 push!(LOAD_PATH, "@v#.#")  # stacked env for CairoMakie
 
-using DRex
+using MantleFabric
 using LinearAlgebra
 using CairoMakie
 using Statistics: mean
@@ -57,11 +57,11 @@ for (i, θ) in enumerate(initial_angles)
 end
 fractions = fill(1.0 / N, N)
 
-# ── Call DRex derivatives (single step) ────────────────────────────────────
+# ── Call D-Rex derivatives (single step) ────────────────────────────────────
 println("Computing derivatives for $N grains (ideal girdle)...")
 t0 = time()
 
-orientations_diff, fractions_diff = DRex.derivatives(
+orientations_diff, fractions_diff = MantleFabric.derivatives(
     matrix_dislocation, olivine, olivine_A, N,
     orientations, fractions, sr, L, fill(NaN, 3, 3),
     p, n, λ, M, 1.0,
@@ -111,7 +111,7 @@ lines!(ax_a, angles_deg, target_rotation, linewidth=2, color=:black,
 idx = 1:250:N   # subsample for readability
 scatter!(ax_a, angles_deg[idx], numerical_rotation[idx], markersize=8,
     color=(:steelblue, 0.0), strokecolor=:steelblue, strokewidth=1.5,
-    marker=:circle, label="DRex numerical")
+    marker=:circle, label="D-Rex numerical")
 vlines!(ax_a, [90, 270], linestyle=:dash, color=:gray60, linewidth=1)
 xlims!(ax_a, 0, 360)
 ylims!(ax_a, -0.1, 2.1)
@@ -129,7 +129,7 @@ lines!(ax_b, angles_deg, target_fractions_diff, linewidth=2, color=:black,
     label="−M*f(E − Ē)")
 scatter!(ax_b, angles_deg[idx], fractions_diff[idx], markersize=8,
     color=(:steelblue, 0.0), strokecolor=:steelblue, strokewidth=1.5,
-    marker=:circle, label="DRex numerical")
+    marker=:circle, label="D-Rex numerical")
 vlines!(ax_b, [90, 270], linestyle=:dash, color=:gray60, linewidth=1)
 xlims!(ax_b, 0, 360)
 axislegend(ax_b, position=:rt)

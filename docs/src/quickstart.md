@@ -4,7 +4,7 @@
 
 ```julia
 using LinearAlgebra
-using DRex
+using MantleFabric
 
 # Create an olivine mineral with 3500 grains
 mineral = Mineral(

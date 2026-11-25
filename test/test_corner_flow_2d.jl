@@ -1,8 +1,8 @@
 using Test
 using LinearAlgebra
 using Statistics
-using DRex
-using DRex: corner_2d, get_pathline, strain_increment, update_orientations!,
+using MantleFabric
+using MantleFabric: corner_2d, get_pathline, strain_increment, update_orientations!,
               resample_orientations, bingham_average, smallest_angle,
               misorientation_index, OLIVINE_PRIMARY_AXIS
 
@@ -69,7 +69,7 @@ end
     z_fracs = (-0.3, -0.54)  # 2 of the 4 pathlines
     max_strain = 10.0
 
-    params = DRex.default_params()
+    params = MantleFabric.default_params()
     params[:number_of_grains] = n_grains
 
     get_velocity, get_velocity_gradient = corner_2d("X", "Z", plate_speed)

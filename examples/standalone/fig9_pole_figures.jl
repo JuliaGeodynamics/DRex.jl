@@ -11,7 +11,7 @@
 
 push!(LOAD_PATH, "@v#.#")  # stacked env for CairoMakie
 
-using DRex
+using MantleFabric
 using LinearAlgebra
 using CairoMakie
 using Base.Threads: @threads, nthreads

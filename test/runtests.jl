@@ -1,5 +1,5 @@
 using Test
-using DRex
+using MantleFabric
 
 include("test_core.jl")
 include("test_tensors.jl")

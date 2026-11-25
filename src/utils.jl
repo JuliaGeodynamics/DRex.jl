@@ -1,4 +1,4 @@
-# Utility functions for DRex.
+# Utility functions for MantleFabric.
 
 """
     strain_increment(dt, velocity_gradient)

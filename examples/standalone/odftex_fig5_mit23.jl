@@ -20,7 +20,7 @@
 
 push!(LOAD_PATH, "@v#.#")
 
-using DRex
+using MantleFabric
 using LinearAlgebra
 using Printf
 
@@ -32,7 +32,7 @@ catch
     :gl
 end
 
-using DRex: init_odf, odftex_step!, odftex_kinematics,
+using MantleFabric: init_odf, odftex_step!, odftex_kinematics,
             odf_polefigure_density, fse_long_axis, odf_misorientation_index
 using Random: MersenneTwister
 
@@ -77,7 +77,7 @@ for _ in 1:N_STEPS
 end
 m_index = odf_misorientation_index(state; n = 40000, rng = MersenneTwister(1))
 @printf("  ODF integral = %.4f,  M-index (sampled) = %.4f\n",
-        DRex.integral_drx(state), m_index)
+        MantleFabric.integral_drx(state), m_index)
 @printf("  shear plane @ %.1f°,  max-extension @ %.1f°,  FSE @ %.1f° (from X)\n",
         atand(SHEAR_PLANE_DIR[2], SHEAR_PLANE_DIR[1]),
         atand(MAX_EXT_DIR[2], MAX_EXT_DIR[1]),

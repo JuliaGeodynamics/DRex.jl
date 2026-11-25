@@ -22,7 +22,7 @@
 
 push!(LOAD_PATH, "@v#.#")
 
-using DRex
+using MantleFabric
 using LinearAlgebra
 using Printf
 
@@ -34,7 +34,7 @@ catch
     :gl
 end
 
-using DRex: init_odf, odftex_step!, fse_long_axis, odf_mean_axis
+using MantleFabric: init_odf, odftex_step!, fse_long_axis, odf_mean_axis
 
 # ── Parameters ────────────────────────────────────────────────────────────────
 const NBOX      = 60
