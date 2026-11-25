@@ -307,9 +307,8 @@ end
 end
 
 @testset "Fig. 6 physics — [100] expectation orientation vs FSE" begin
-    # Simple shear (Γ=1). The paper plots the EXPECTATION value of the in-plane
-    # [100] orientation relative to the shear plane (odf_expectation_angle), not
-    # the dominant axis. For an isotropic ODF this is 45°.
+    # Simple shear (Γ=1). Mean folded in-plane [100] angle relative to the shear
+    # plane (odf_expectation_angle). For an isotropic ODF this is 45°.
     vg = [0.0 -2.0 0.0; 0.0 0.0 0.0; 0.0 0.0 0.0]
 
     fse_angle(γ) = (v = fse_long_axis(exp(vg * (γ / 2)));
@@ -329,8 +328,7 @@ end
 
     # Low strain: both recrystallising curves sit ABOVE the FSE (the [100]
     # distribution stays spread near the instantaneous extension direction while
-    # the FSE has already begun rotating toward the shear plane). This is the
-    # paper's low-strain behaviour.
+    # the FSE has already begun rotating toward the shear plane).
     for γ in (0.1, 0.2, 0.3)
         f = fse_angle(γ)
         @test a_angle(2.6, γ) > f
@@ -391,4 +389,91 @@ end
     # M-index in the recrystallised range (paper native 12³ = 0.0984).
     m = odf_misorientation_index(st; n = 40000, rng = MersenneTwister(1))
     @test 0.06 < m < 0.16
+end
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Pathline driver for time-dependent flow (odftex_update!)
+# ──────────────────────────────────────────────────────────────────────────────
+
+@testset "ODFTEX pathline update (time-dependent flow)" begin
+    nbox = 12
+    L0 = [0.0 -2.0 0.0; 0.0 0.0 0.0; 0.0 0.0 0.0]     # ė₀ = 1
+    getpos = t -> [0.0, 0.0, 0.0]
+
+    # Reference: 40 manual steady steps to τ = 1.
+    ref = init_odf(nbox)
+    for _ in 1:40
+        odftex_step!(ref, L0, 1.0 / 40)
+    end
+
+    # Steady flow through the driver picks the same 40 steps and F = I + L·t.
+    st = init_odf(nbox)
+    F = DRex.odftex_update!(st, Matrix(1.0I, 3, 3), (t, x) -> L0, (0.0, 1.0, getpos))
+    @test st.f ≈ ref.f
+    @test F ≈ I + L0
+
+    # Same strain accrued 1000× faster (dimensional rates): identical texture.
+    st = init_odf(nbox)
+    F = DRex.odftex_update!(st, Matrix(1.0I, 3, 3), (t, x) -> 1000 .* L0, (0.0, 1e-3, getpos))
+    @test st.f ≈ ref.f
+    @test F ≈ I + L0
+
+    # Time-dependent rate g(t) = 2t on [0,1] (∫g = 1): same strain path, so the
+    # texture must converge to the steady result.
+    st = init_odf(nbox)
+    F = DRex.odftex_update!(st, Matrix(1.0I, 3, 3), (t, x) -> (2t) .* L0, (0.0, 1.0, getpos);
+                            max_strain_step = 0.005)
+    @test F ≈ I + L0
+    @test maximum(abs.(st.f .- ref.f)) / maximum(ref.f) < 2e-2
+
+    # No deformation: nothing changes.
+    st = init_odf(nbox)
+    DRex.odftex_update!(st, Matrix(1.0I, 3, 3), (t, x) -> zeros(3, 3), (0.0, 1.0, getpos))
+    @test all(st.f .≈ 1)
+end
+
+@testset "ODFTEX texture limiter (rmax) and exact Mineral export" begin
+    L0 = [0.0 -2.0 0.0; 0.0 0.0 0.0; 0.0 0.0 0.0]
+    getpos = t -> zeros(3)
+    I3 = Matrix(1.0I, 3, 3)
+
+    # Limiter engages once ln(c1/c2) > rmax and the texture then stops sharpening.
+    st = init_odf(12)
+    F = DRex.odftex_update!(st, I3, (t, x) -> L0, (0.0, 1.0, getpos); rmax = 0.5)
+    @test st.ilimit == 1
+    fmax = maximum(st.f)
+    DRex.odftex_update!(st, F, (t, x) -> L0, (1.0, 2.0, getpos); rmax = 0.5)
+    @test maximum(st.f) ≈ fmax
+    free = init_odf(12)
+    DRex.odftex_update!(free, I3, (t, x) -> L0, (0.0, 2.0, getpos))
+    @test free.ilimit == 0 && maximum(free.f) > 2 * fmax
+
+    # Isotropic ODF → nearly isotropic Voigt average; textured ODF → anisotropic.
+    ms = DRex.odf_to_minerals(init_odf(12))
+    @test length(ms) == 2 && sum(ms[1].fractions[end]) ≈ 1
+    C = voigt_averages(ms, [olivine, enstatite], [0.7, 0.3])
+    @test abs(C[1,1] - C[3,3]) / C[1,1] < 0.01
+    C = voigt_averages(DRex.odf_to_minerals(free), [olivine, enstatite], [0.7, 0.3])
+    @test abs(C[1,1] - C[3,3]) / C[1,1] > 0.03
+end
+
+@testset "Fig. 6 — mean [100] axis rotates to the shear plane faster than the FSE" begin
+    # The dominant [100] axis (odf_mean_axis) reproduces the curves of the paper's
+    # Fig. 6: ≈6° from the shear plane at γ = 2 for λ = 2.6 (FSE: 22.5°), and
+    # within a few degrees of the shear plane by γ = 1.25 for λ = 10.
+    vg = [0.0 -2.0 0.0; 0.0 0.0 0.0; 0.0 0.0 0.0]
+    function mean_angle(λ, γ)
+        st = init_odf(24; λ = λ)
+        for _ in 1:40
+            odftex_step!(st, vg, γ / 2 / 40)
+        end
+        v = odf_mean_axis(st, "a")
+        a = abs(atand(v[2], v[1]))
+        return a > 90 ? 180 - a : a
+    end
+    fse(γ) = atand(2 / γ) / 2
+    @test 4 < mean_angle(2.6, 2.0) < 8
+    @test 22 < mean_angle(2.6, 1.0) < 27
+    @test mean_angle(10.0, 1.25) < 3
+    @test mean_angle(2.6, 1.0) < fse(1.0) && mean_angle(10.0, 0.5) < fse(0.5)
 end

@@ -193,7 +193,8 @@ end
 From a 3×3 velocity gradient compute the (dimensional) strain-rate tensor `sr`,
 the extrinsic spin `omdot` (one-half the vorticity) and the recrystallisation
 constant `c1` (paper eq. 17). All quantities are dimensional; for a time-
-dependent flow they are recomputed each step from the local VGT.
+dependent flow they are recomputed each step from the local VGT. The stepper
+divides the recrystallisation rate by ė₀, so no nondimensionalisation is needed.
 """
 function odftex_kinematics(vg::AbstractMatrix{T}) where {T<:AbstractFloat}
     sr = SMatrix{3,3,T,9}(ntuple(Val(9)) do idx
@@ -227,6 +228,11 @@ function _odftex_substep!(isteptype::Int,
                           ph2, th2, ps2,          # output angles
                           f, f_nodrx, nbox,
                           omdot, sr, λ::T, c1::T, ilimit::Int, dt::T) where {T}
+    # The recrystallisation rate λ(c1 + 2ψ̇²) is quadratic in strain rate. The
+    # Fortran works in time nondimensionalised by ė₀; in dimensional form the rate
+    # is λ(c1 + 2ψ̇²)/ė₀, so texture depends on strain, not on how fast it accrues.
+    e0 = T(strain_rate_scale(sr))
+    inv_e0 = e0 > 0 ? inv(e0) : zero(T)
     @inbounds for k in 1:nbox, j in 1:nbox, i in 1:nbox
         cph = cos(phm[i,j,k])
         sph = sin(phm[i,j,k])
@@ -239,7 +245,7 @@ function _odftex_substep!(isteptype::Int,
 
         if ilimit != 1
             ψdot_int, divψdot = psdot_calc_general(phm[i,j,k], thm[i,j,k], psm[i,j,k], sr)
-            drx = λ * (c1 + 2*ψdot_int^2)
+            drx = λ * (c1 + 2*ψdot_int^2) * inv_e0
             phdot = phdot_ext
             thdot = thdot_ext
             psdot = psdot_ext + ψdot_int
@@ -321,6 +327,61 @@ gradient and use them for both half- and full-step.
 function odftex_step!(state::ODFState{T}, vg::AbstractMatrix, dt::Real) where {T}
     sr, omdot, c1 = odftex_kinematics(T.(vg))
     return odftex_step!(state, sr, omdot, T(c1), sr, omdot, T(c1), T(dt))
+end
+
+"""
+    odftex_update!(state, deformation_gradient, get_velocity_gradient, pathline;
+                   max_strain_step=0.025, min_substeps=1, rmax=Inf) -> new_deformation_gradient
+
+Evolve the ODF along a pathline through a (possibly time-dependent) flow. Mirrors
+`update_all!` for the D-Rex path:
+
+- `get_velocity_gradient(t, x)` returns the 3×3 velocity gradient at time `t` and
+  position `x` (any consistent units, e.g. 1/Myr with times in Myr);
+- `pathline = (t_start, t_end, get_position)` with `get_position(t)` the particle
+  position.
+
+The interval is split into equal second-order midpoint steps, each using the
+kinematics at the step start for the half-step and at the step midpoint for the
+full step. The number of steps is chosen so the strain increment ė₀·dt per step
+does not exceed `max_strain_step` (0.025 is what the reference Fortran uses).
+The deformation gradient is advanced with the same midpoint rule and returned.
+
+`rmax` is the texture limiter of the paper (Section 7.1): with c₁ ≥ c₂ ≥ c₃ the
+axes of the finite strain ellipsoid, the texture stops evolving once ln(c₁/c₂) or
+ln(c₂/c₃) exceeds `rmax`, and from then on only rotates passively with the flow
+(`state.ilimit` is set to 1). The paper uses `rmax = 5`; the default is no limit.
+"""
+function odftex_update!(state::ODFState{T},
+                        deformation_gradient::AbstractMatrix,
+                        get_velocity_gradient,
+                        pathline::Tuple;
+                        max_strain_step::Real = 0.025,
+                        min_substeps::Int = 1,
+                        rmax::Real = Inf) where {T<:AbstractFloat}
+    t_start, t_end, get_position = pathline
+    Δt = t_end - t_start
+    kin(t) = (L = SMatrix{3,3,T,9}(get_velocity_gradient(t, get_position(t)));
+              (L, odftex_kinematics(L)...))
+
+    e0_max = maximum(t -> strain_rate_scale(kin(t)[2]),
+                     (t_start, t_start + Δt / 2, t_end))
+    n  = max(min_substeps, ceil(Int, e0_max * abs(Δt) / max_strain_step))
+    dt = Δt / n
+
+    F = SMatrix{3,3,T,9}(deformation_gradient)
+    for i in 1:n
+        t0 = t_start + (i - 1) * dt
+        L0, sr0, om0, c10 = kin(t0)
+        L1, sr1, om1, c11 = kin(t0 + dt / 2)
+        odftex_step!(state, sr0, om0, T(c10), sr1, om1, T(c11), T(dt))
+        F += dt * L1 * (F + (dt / 2) * L0 * F)      # midpoint rule for dF/dt = L·F
+        if state.ilimit != 1 && isfinite(rmax)
+            c = svdvals(F)                           # FSE axes, c[1] ≥ c[2] ≥ c[3]
+            (log(c[1] / c[2]) > rmax || log(c[2] / c[3]) > rmax) && (state.ilimit = 1)
+        end
+    end
+    return Matrix(F)
 end
 
 # ──────────────────────────────────────────────────────────────────────────────

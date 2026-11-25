@@ -22,6 +22,25 @@ derivatives!
 get_crss
 ```
 
+## ODFTEX (continuum texture model)
+
+```@docs
+ODFState
+init_odf
+odftex_step!
+odftex_update!
+odftex_kinematics
+odf_box_weights
+sample_orientations
+odf_to_minerals
+odf_mean_axis
+odf_pole_figure
+odf_misorientation_index
+odf_polefigure_density
+fse_long_axis
+odf_expectation_angle
+```
+
 ## Voigt averaging
 
 ```@docs

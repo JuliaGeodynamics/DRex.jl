@@ -1,27 +1,18 @@
 # Reproduce Figure 6 of Ribe, Faccenda & VanderBeek (2026, GJI) — the ODFTEX paper.
 #
-# Expectation value of the olivine [100] orientation relative to the shear plane,
-# as a function of shear strain, in SIMPLE SHEAR (Γ = 1). Three model curves:
+# Mean orientation of the olivine [100] axis relative to the shear plane, as a
+# function of shear strain, in SIMPLE SHEAR (Γ = 1). Three model curves:
 #   • FSE   (red)   — long axis of the finite strain ellipsoid
-#   • λ=2.6 (blue)  — ODFTEX [100] expectation-value orientation
-#   • λ=10  (green) — ODFTEX [100] expectation-value orientation
+#   • λ=2.6 (blue)  — ODFTEX mean [100] orientation
+#   • λ=10  (green) — ODFTEX mean [100] orientation
 #
-# The paper plots the "expectation value of the [100] orientation"
-# (∫|angle| f dg / ∫ f dg, via `odf_expectation_angle`) — the ODF-weighted mean of
-# the in-plane angle, NOT the dominant axis (`odf_mean_axis`). For an isotropic
-# ODF this is 45°, so all curves start at 45°. At low strain the recrystallising
-# curves sit slightly ABOVE the FSE (the [100] distribution stays spread near the
-# instantaneous extension direction), then cross below it and rotate to the shear
-# plane faster than the FSE — the signature of dynamic recrystallisation (Zhang &
-# Karato 1995). The experimental symbols in the paper are laboratory data and are
-# not reproduced here.
-#
-# Caveat: the low-strain behaviour and the FSE > λ=2.6 > λ=10 crossover are
-# reproduced; the λ=2.6 curve saturates higher at large strain (≈20° at γ=2) than
-# the paper's (~5°), reflecting a difference in the exact expectation definition.
-# The underlying ODF matches Neil Ribe's reference Fortran element-wise (see the
-# validation test), so this is a diagnostic-definition difference, not a method
-# difference.
+# The mean orientation is the leading eigenvector of the ODF-weighted orientation
+# tensor ⟨a⊗a⟩ of the [100] axes (`odf_mean_axis`). The paper does not spell out
+# its definition of the "expectation value of the [100] orientation"; this one
+# reproduces its curves to within a few degrees (≈6° at γ = 2 for λ = 2.6, and the
+# shear plane reached by γ ≈ 1.3 for λ = 10). The alternative `odf_expectation_angle`
+# (mean of the folded in-plane angle) is biased towards 45° and does not.
+# The experimental symbols in the paper are laboratory data and are not shown.
 #
 # Sense of shear: sinistral in the X–Y plane, L[1,2] = ∂vx/∂y = −2 (ε̇₀ = 1), so
 # the shear strain is γ = 2τ where τ = ε̇₀ t is the dimensionless time.
@@ -43,7 +34,7 @@ catch
     :gl
 end
 
-using DRex: init_odf, odftex_step!, fse_long_axis, odf_expectation_angle
+using DRex: init_odf, odftex_step!, fse_long_axis, odf_mean_axis
 
 # ── Parameters ────────────────────────────────────────────────────────────────
 const NBOX      = 60
@@ -56,7 +47,7 @@ const LAMBDAS   = [(2.6, :blue, "λ = 2.6"), (10.0, :green, "λ = 10")]
 const VG = [0.0 -2.0 0.0; 0.0 0.0 0.0; 0.0 0.0 0.0]
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-"""[100] expectation-value orientation (deg from shear plane) at strain γ."""
+"""Mean [100] orientation (deg from shear plane) at strain γ."""
 function a_axis_angle(λ, γ)
     τ = γ / 2
     st = init_odf(NBOX; λ = λ)
@@ -64,9 +55,10 @@ function a_axis_angle(λ, γ)
     for _ in 1:N_STEPS
         odftex_step!(st, VG, dt)
     end
-    # Deformation plane is X–Y; X is the shear direction. Expectation value of the
-    # in-plane [100] angle relative to the shear plane.
-    return odf_expectation_angle(st, 1; plane_dir1 = 1, plane_dir2 = 2)
+    # Deformation plane is X–Y; X is the shear direction.
+    v = odf_mean_axis(st, "a")
+    a = abs(atand(v[2], v[1]))
+    return a > 90 ? 180 - a : a
 end
 
 """FSE long-axis orientation (deg from shear plane) at strain γ."""
@@ -77,9 +69,9 @@ function fse_angle(γ)
 end
 
 # ── Compute curves ────────────────────────────────────────────────────────────
-# Sample from a small non-zero strain (the texture is undefined at γ=0; the
-# expectation value starts at 45° = the isotropic in-plane mean angle).
-println("Computing ODFTEX [100] expectation orientation vs shear strain (nbox=$(NBOX)) …")
+# Sample from a small non-zero strain (the mean axis is undefined at γ=0; for
+# infinitesimal strain it lies along the extension direction, at 45°).
+println("Computing ODFTEX mean [100] orientation vs shear strain (nbox=$(NBOX)) …")
 γs = collect(range(0.02, GAMMA_MAX; length = N_GAMMA))
 
 fse_curve = [fse_angle(γ) for γ in γs]
@@ -92,7 +84,7 @@ end
 fig = Figure(; size = (640, 520))
 ax = Axis(fig[1, 1];
           xlabel = "shear strain", ylabel = "orientation relative to shear plane (degrees)",
-          title = "ODFTEX — [100] expectation orientation vs shear strain (simple shear)",
+          title = "ODFTEX — mean [100] orientation vs shear strain (simple shear)",
           xticks = 0:0.5:2.0, yticks = 0:15:45)
 limits!(ax, 0, GAMMA_MAX, -2, 47)
 

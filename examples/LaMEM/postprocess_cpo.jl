@@ -75,6 +75,7 @@ tracers, snaps = compute_cpo_from_lamem(
     seed               = 42,
     n_substeps         = 5,
     fabric             = olivine_A,
+    method             = :drex,   # texture model: :drex or :odftex (ODFTEX; optional nbox=30, λ=2.6)
 )
 
 # ============================================================================
@@ -83,8 +84,12 @@ tracers, snaps = compute_cpo_from_lamem(
 
 @info "Plotting olivine [100] pole figures…"
 
-m_indices_final = [misorientation_index(tr.minerals[1].orientations[end], orthorhombic)
-                   for tr in tracers]
+# D-Rex grains have unequal volume fractions, so resample by fraction first
+m_indices_final = map(tracers) do tr
+    ol = tr.minerals[1]
+    ori = resample_orientations([ol.orientations[end]], [ol.fractions[end]]; seed = 1)[1][1]
+    misorientation_index(ori, orthorhombic)
+end
 
 n_tracers = length(tracers)
 n_cols    = min(n_tracers, 6)

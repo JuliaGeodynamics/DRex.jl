@@ -16,6 +16,7 @@ makedocs(;
         "Home"                  => "index.md",
         "Installation"          => "installation.md",
         "Quick Start"           => "quickstart.md",
+        "D-Rex and ODFTEX"      => "methods.md",
         "Examples"              => "examples.md",
         "GPU & Multithreading"  => "gpu.md",
         "LaMEM Integration"     => "lamem.md",

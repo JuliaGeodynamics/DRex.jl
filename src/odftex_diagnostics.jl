@@ -47,7 +47,7 @@ end
 # ──────────────────────────────────────────────────────────────────────────────
 
 """
-    sample_orientations(state, n; s=1, rng=Random.default_rng()) -> Array{T,3}
+    sample_orientations(state, n; s=1, rng=Random.default_rng(), symmetrize=true) -> Array{T,3}
 
 Draw `n` discrete orientation matrices distributed according to the ODF, returned
 as an `n×3×3` array compatible with the existing grain-based diagnostics and the
@@ -56,10 +56,17 @@ VTK/LaMEM output path.
 Each draw selects a box with probability proportional to its ODF weight (see
 `odf_box_weights`) and returns the direction-cosine matrix for that box's
 (advected) Euler angles, transformed to the slip-system-`s` frame.
+
+The Euler grid only spans the orthorhombic fundamental zone (φ, ψ ∈ [0,π]), so
+every axis sampled from it lies in one half-space. With `symmetrize=true` each
+draw is rotated by a random orthorhombic symmetry operation (a two-fold rotation
+about a crystal axis), which makes the sample cover orientation space like a set
+of discrete grains does. Symmetry-aware diagnostics are unaffected.
 """
 function sample_orientations(state::ODFState{T}, n::Int;
                              s::Int = 1,
-                             rng::AbstractRNG = Random.default_rng()) where {T<:AbstractFloat}
+                             rng::AbstractRNG = Random.default_rng(),
+                             symmetrize::Bool = true) where {T<:AbstractFloat}
     _, ph2, th2, ps2 = eulerian_transform(state, s)
     # weights follow the master grid; the transform only relabels angles, not f
     w = odf_box_weights(state)
@@ -75,11 +82,41 @@ function sample_orientations(state::ODFState{T}, n::Int;
         idx = searchsortedfirst(cdf, r)
         idx = clamp(idx, 1, length(cdf))
         a = euler_to_dircos(ph_flat[idx], th_flat[idx], ps_flat[idx])
+        # two-fold rotation about crystal axis `keep` flips the other two rows
+        keep = symmetrize ? rand(rng, 0:3) : 0
         for i in 1:3, j in 1:3
-            out[g,i,j] = a[i,j]
+            out[g,i,j] = (keep == 0 || keep == i) ? a[i,j] : -a[i,j]
         end
     end
     return out
+end
+
+"""
+    odf_to_minerals(state; phases=[olivine, enstatite]) -> Vector{Mineral}
+
+Represent the ODF exactly as one `Mineral` per phase: one "grain" per Euler box,
+with the box's orientation (olivine in the slip-system-1 frame, enstatite in the
+slip-system-4 frame) and the box's ODF weight as volume fraction. Use this to
+feed the ODF to grain-based routines that honour volume fractions, e.g.
+`voigt_averages` for the elastic tensor, without any sampling noise.
+"""
+function odf_to_minerals(state::ODFState{T};
+                         phases::Vector{MineralPhase} = [olivine, enstatite]) where {T<:AbstractFloat}
+    w = Float64.(vec(odf_box_weights(state)))
+    return Mineral[_odf_mineral(state, w, phase) for phase in phases]
+end
+
+function _odf_mineral(state::ODFState, w::Vector{Float64}, phase::MineralPhase)
+    _, ph, th, ps = eulerian_transform(state, phase == enstatite ? 4 : 1)
+    ori = Array{Float64,3}(undef, length(w), 3, 3)
+    @inbounds for g in eachindex(w)
+        a = euler_to_dircos(ph[g], th[g], ps[g])
+        for i in 1:3, j in 1:3
+            ori[g,i,j] = a[i,j]
+        end
+    end
+    return Mineral(; phase, fabric = phase == enstatite ? enstatite_AB : olivine_A,
+            n_grains = length(w), fractions_init = w, orientations_init = ori)
 end
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -276,12 +313,13 @@ end
 
 ODF-weighted **expectation value** of the in-plane orientation angle (degrees, in
 [0,90]) of a crystallographic axis relative to a reference direction within a
-deformation plane. This is the quantity plotted by the paper's Fig. 6
-("expectation values of the [100] orientation"): the axis is projected into the
-plane spanned by Cartesian axes `plane_dir1`/`plane_dir2`, and the acute angle of
-that projection from `plane_dir1` is averaged over the ODF —
-`∫ |angle(g)| f(g) dg / ∫ f(g) dg` — rather than taking the dominant axis
-(`odf_mean_axis`).
+deformation plane: the axis is projected into the plane spanned by Cartesian axes
+`plane_dir1`/`plane_dir2`, and the acute angle of that projection from
+`plane_dir1` is averaged over the ODF — `∫ |angle(g)| f(g) dg / ∫ f(g) dg`.
+
+Because the angle is folded into [0,90], this measure is biased towards 45° for
+broad distributions. The curves of the paper's Fig. 6 are reproduced by the
+dominant axis ([`odf_mean_axis`](@ref)) instead, not by this function.
 
 For the paper's simple-shear setup the deformation plane is X–Y (`plane_dir1=1`,
 `plane_dir2=2`) and `plane_dir1` (X) is the shear direction, so the reported

@@ -150,3 +150,19 @@ end
         end
     end
 end
+
+@testset "resample_orientations follows the volume fractions" begin
+    ori = zeros(4, 3, 3)
+    for g in 1:4
+        ori[g, :, :] .= g                      # label each grain by its index
+    end
+    # All weight on one grain ⇒ every sample is that grain.
+    o, f = resample_orientations([ori], [[0.0, 0.0, 1.0, 0.0]]; n_samples = 200, seed = 1)
+    @test all(o[1] .== 3)
+    @test all(f[1] .== 1)
+    # Sample frequencies match the fractions.
+    frac = [0.1, 0.2, 0.3, 0.4]
+    o, _ = resample_orientations([ori], [frac]; n_samples = 100_000, seed = 2)
+    freq = [count(==(g), o[1][:, 1, 1]) / 100_000 for g in 1:4]
+    @test freq ≈ frac atol = 0.01
+end
