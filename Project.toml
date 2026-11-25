@@ -2,7 +2,7 @@ name = "DRex"
 uuid = "d4e3b9a0-5c1a-4e2b-8f3d-6a7b8c9d0e1f"
 license = "GPL-3.0-or-later"
 authors = ["Boris Kaus <kaus@uni-mainz.de>"]
-version = "0.1.0"
+version = "0.2.0"
 
 [deps]
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
